@@ -8,7 +8,7 @@ public class UserRegistrationRequest
     [StringLength(100)]
     public string FirstName { get; set; }
 
-        [Required]
+    [Required]
     [StringLength(100)]
     public string LastName { get; set; }
     
@@ -22,6 +22,28 @@ public class UserRegistrationRequest
     
     [Phone]
     public string PhoneNumber { get; set; }
+    
+    // Optional Address Fields
+    [StringLength(100)]
+    public string? HouseNameNumber { get; set; }
+    
+    [StringLength(255)]
+    public string? Street1 { get; set; }
+    
+    [StringLength(255)]
+    public string? Street2 { get; set; }
+    
+    [StringLength(100)]
+    public string? City { get; set; }
+    
+    [StringLength(100)]
+    public string? State { get; set; }
+    
+    [StringLength(100)]
+    public string? Country { get; set; }
+    
+    [StringLength(20)]
+    public string? ZipPostalCode { get; set; }
 }
 
 public class ProRegistrationRequest
@@ -44,4 +66,26 @@ public class ProRegistrationRequest
     [Required]
     [StringLength(100)]
     public string BusinessName { get; set; }
+    
+    // Optional Address Fields
+    [StringLength(100)]
+    public string? HouseNameNumber { get; set; }
+    
+    [StringLength(255)]
+    public string? Street1 { get; set; }
+    
+    [StringLength(255)]
+    public string? Street2 { get; set; }
+    
+    [StringLength(100)]
+    public string? City { get; set; }
+    
+    [StringLength(100)]
+    public string? State { get; set; }
+    
+    [StringLength(100)]
+    public string? Country { get; set; }
+    
+    [StringLength(20)]
+    public string? ZipPostalCode { get; set; }
 }

@@ -83,6 +83,13 @@ public class AuthController : ControllerBase
             Email = request.Email,
             PasswordHash = BC.HashPassword(request.Password),
             PhoneNumber = request.PhoneNumber,
+            HouseNameNumber = request.HouseNameNumber,
+            Street1 = request.Street1,
+            Street2 = request.Street2,
+            City = request.City,
+            State = request.State,
+            Country = request.Country,
+            ZipPostalCode = request.ZipPostalCode,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -120,6 +127,13 @@ public class AuthController : ControllerBase
             PasswordHash = BC.HashPassword(request.Password),
             PhoneNumber = request.PhoneNumber,
             BusinessName = request.BusinessName,
+            HouseNameNumber = request.HouseNameNumber,
+            Street1 = request.Street1,
+            Street2 = request.Street2,
+            City = request.City,
+            State = request.State,
+            Country = request.Country,
+            ZipPostalCode = request.ZipPostalCode,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
