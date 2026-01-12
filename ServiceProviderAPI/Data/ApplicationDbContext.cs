@@ -15,6 +15,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<Service> Services { get; set; }
     public DbSet<ProUser> ProUsers { get; set; }
     public DbSet<VerificationCode> VerificationCodes { get; set; }
+    public DbSet<Job> Jobs { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -41,5 +42,17 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<Service>()
             .Property(s => s.Price)
             .HasPrecision(18, 2);
+
+        modelBuilder.Entity<Job>()
+            .HasOne(j => j.User)
+            .WithMany()
+            .HasForeignKey(j => j.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Job>()
+            .HasOne(j => j.AssignedPro)
+            .WithMany()
+            .HasForeignKey(j => j.AssignedProId)
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }

@@ -281,3 +281,4 @@ C:\Mine\yProHubUI\ProHubAPI\ServiceProviderAPI\obj\Debug\net8.0\refint\ServicePr
 C:\Mine\yProHubUI\ProHubAPI\ServiceProviderAPI\obj\Debug\net8.0\ServiceProviderAPI.pdb
 C:\Mine\yProHubUI\ProHubAPI\ServiceProviderAPI\obj\Debug\net8.0\ServiceProviderAPI.genruntimeconfig.cache
 C:\Mine\yProHubUI\ProHubAPI\ServiceProviderAPI\obj\Debug\net8.0\ref\ServiceProviderAPI.dll
+C:\Mine\yProHubUI\ProHubAPI\ServiceProviderAPI\obj\Debug\net8.0\ServiceProviderAPI.sourcelink.json
