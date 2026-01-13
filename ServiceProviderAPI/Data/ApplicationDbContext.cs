@@ -13,6 +13,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<Pro> Pros { get; set; }
     public DbSet<User> Users { get; set; }
     public DbSet<Service> Services { get; set; }
+    public DbSet<ServiceCategory> ServiceCategories { get; set; }
     public DbSet<ProUser> ProUsers { get; set; }
     public DbSet<VerificationCode> VerificationCodes { get; set; }
     public DbSet<Job> Jobs { get; set; }
