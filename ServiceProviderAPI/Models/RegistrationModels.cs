@@ -23,27 +23,33 @@ public class UserRegistrationRequest
     [Phone]
     public string PhoneNumber { get; set; }
     
-    // Optional Address Fields
+    // Required Address Fields
+    [Required]
     [StringLength(100)]
-    public string? HouseNameNumber { get; set; }
+    public string HouseNameNumber { get; set; }
     
+    [Required]
     [StringLength(255)]
-    public string? Street1 { get; set; }
+    public string Street1 { get; set; }
     
     [StringLength(255)]
     public string? Street2 { get; set; }
     
+    [Required]
     [StringLength(100)]
-    public string? City { get; set; }
+    public string City { get; set; }
     
+    [Required]
     [StringLength(100)]
-    public string? State { get; set; }
+    public string State { get; set; }
     
+    [Required]
     [StringLength(100)]
-    public string? Country { get; set; }
+    public string Country { get; set; }
     
+    [Required]
     [StringLength(20)]
-    public string? ZipPostalCode { get; set; }
+    public string ZipPostalCode { get; set; }
 }
 
 public class ProRegistrationRequest
@@ -67,25 +73,31 @@ public class ProRegistrationRequest
     [StringLength(100)]
     public string BusinessName { get; set; }
     
-    // Optional Address Fields
+    // Required Address Fields
+    [Required]
     [StringLength(100)]
-    public string? HouseNameNumber { get; set; }
+    public string HouseNameNumber { get; set; }
     
+    [Required]
     [StringLength(255)]
-    public string? Street1 { get; set; }
+    public string Street1 { get; set; }
     
     [StringLength(255)]
     public string? Street2 { get; set; }
     
+    [Required]
     [StringLength(100)]
-    public string? City { get; set; }
+    public string City { get; set; }
     
+    [Required]
     [StringLength(100)]
-    public string? State { get; set; }
+    public string State { get; set; }
     
+    [Required]
     [StringLength(100)]
-    public string? Country { get; set; }
+    public string Country { get; set; }
     
+    [Required]
     [StringLength(20)]
-    public string? ZipPostalCode { get; set; }
+    public string ZipPostalCode { get; set; }
 }
