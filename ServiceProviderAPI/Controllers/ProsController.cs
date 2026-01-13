@@ -56,7 +56,7 @@ public class ProsController : ControllerBase
 
     [HttpPut("{id}")]
     [Authorize(Roles = "Pro")]
-    public async Task<IActionResult> UpdatePro(int id, Pro pro)
+    public async Task<ActionResult<Pro>> UpdatePro(int id, Pro pro)
     {
         if (id != pro.Id)
         {
@@ -77,6 +77,13 @@ public class ProsController : ControllerBase
         }
         existingPro.PhoneNumber = pro.PhoneNumber;
         existingPro.BusinessName = pro.BusinessName;
+        existingPro.HouseNameNumber = pro.HouseNameNumber;
+        existingPro.Street1 = pro.Street1;
+        existingPro.Street2 = pro.Street2;
+        existingPro.City = pro.City;
+        existingPro.State = pro.State;
+        existingPro.Country = pro.Country;
+        existingPro.ZipPostalCode = pro.ZipPostalCode;
         existingPro.UpdatedAt = DateTime.UtcNow;
 
         try
@@ -95,7 +102,7 @@ public class ProsController : ControllerBase
             }
         }
 
-        return NoContent();
+        return Ok(existingPro);
     }
 
     [HttpDelete("{id}")]

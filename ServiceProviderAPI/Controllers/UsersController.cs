@@ -73,6 +73,13 @@ public class UsersController : ControllerBase
             existingUser.PasswordHash = BC.HashPassword(user.PasswordHash);
         }
         existingUser.PhoneNumber = user.PhoneNumber;
+        existingUser.HouseNameNumber = user.HouseNameNumber;
+        existingUser.Street1 = user.Street1;
+        existingUser.Street2 = user.Street2;
+        existingUser.City = user.City;
+        existingUser.State = user.State;
+        existingUser.Country = user.Country;
+        existingUser.ZipPostalCode = user.ZipPostalCode;
         existingUser.UpdatedAt = DateTime.UtcNow;
 
         try
