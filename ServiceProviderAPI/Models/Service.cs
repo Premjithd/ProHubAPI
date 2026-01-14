@@ -18,7 +18,7 @@ public class Service
     public decimal Price { get; set; }
     
     public int ProId { get; set; }
-    public Pro Pro { get; set; }
+    public Pro? Pro { get; set; }
     
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
