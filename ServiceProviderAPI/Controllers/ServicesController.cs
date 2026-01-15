@@ -22,6 +22,7 @@ public class ServicesController : ControllerBase
     {
         return await _context.Services
             .Include(s => s.Pro)
+            .Include(s => s.ServiceCategory)
             .ToListAsync();
     }
 
@@ -30,6 +31,7 @@ public class ServicesController : ControllerBase
     {
         var service = await _context.Services
             .Include(s => s.Pro)
+            .Include(s => s.ServiceCategory)
             .FirstOrDefaultAsync(s => s.Id == id);
 
         if (service == null)
@@ -45,6 +47,7 @@ public class ServicesController : ControllerBase
     {
         return await _context.Services
             .Where(s => s.ProId == proId)
+            .Include(s => s.ServiceCategory)
             .ToListAsync();
     }
 
@@ -79,6 +82,7 @@ public class ServicesController : ControllerBase
         existingService.Name = service.Name;
         existingService.Description = service.Description;
         existingService.Price = service.Price;
+        existingService.ServiceCategoryId = service.ServiceCategoryId;
         existingService.UpdatedAt = DateTime.UtcNow;
 
         try

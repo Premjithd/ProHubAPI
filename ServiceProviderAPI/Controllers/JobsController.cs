@@ -55,6 +55,29 @@ public class JobsController : ControllerBase
         }
     }
 
+    // GET: api/jobs/available
+    [Authorize]
+    [HttpGet("available")]
+    public async Task<ActionResult<IEnumerable<Job>>> GetAvailableJobs()
+    {
+        try
+        {
+            var jobs = await _context.Jobs
+                .Where(j => j.Status == "Open" && (j.AssignedProId == null || j.AssignedProId == 0))
+                .Include(j => j.User)
+                .Include(j => j.AssignedPro)
+                .OrderByDescending(j => j.CreatedAt)
+                .ToListAsync();
+
+            return Ok(jobs);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error retrieving available jobs: {ex.Message}");
+            return StatusCode(500, new { message = "Error retrieving available jobs", error = ex.Message });
+        }
+    }
+
     // GET: api/jobs/{id}
     [Authorize]
     [HttpGet("{id}")]
