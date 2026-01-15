@@ -78,6 +78,33 @@ public class JobsController : ControllerBase
         }
     }
 
+    // GET: api/jobs/{id}/bids
+    [Authorize]
+    [HttpGet("{id}/bids")]
+    public async Task<ActionResult<IEnumerable<JobBid>>> GetJobBids(int id)
+    {
+        try
+        {
+            var job = await _context.Jobs.FindAsync(id);
+            if (job == null)
+                return NotFound("Job not found");
+
+            // Get bids for this job
+            var bids = await _context.JobBids
+                .Where(jb => jb.JobId == id)
+                .Include(jb => jb.Pro)
+                .OrderByDescending(jb => jb.CreatedAt)
+                .ToListAsync();
+
+            return Ok(bids);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error retrieving job bids: {ex.Message}");
+            return StatusCode(500, new { message = "Error retrieving bids", error = ex.Message });
+        }
+    }
+
     // GET: api/jobs/{id}
     [Authorize]
     [HttpGet("{id}")]
@@ -212,6 +239,52 @@ public class JobsController : ControllerBase
         }
     }
 
+    // POST: api/jobs/{id}/bid
+    [Authorize]
+    [HttpPost("{id}/bid")]
+    public async Task<ActionResult<JobBid>> SubmitJobBid(int id, [FromBody] CreateJobBidRequest request)
+    {
+        try
+        {
+            var proIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            var proId = int.Parse(proIdClaim ?? "0");
+
+            if (proId == 0)
+                return Unauthorized("Pro user not found");
+
+            // Check if job exists
+            var job = await _context.Jobs.FindAsync(id);
+            if (job == null)
+                return NotFound("Job not found");
+
+            // Check if Pro has already bid on this job
+            var existingBid = await _context.JobBids
+                .FirstOrDefaultAsync(jb => jb.JobId == id && jb.ProId == proId);
+
+            if (existingBid != null)
+                return BadRequest("You have already submitted a bid for this job");
+
+            var jobBid = new JobBid
+            {
+                JobId = id,
+                ProId = proId,
+                BidMessage = request.BidMessage,
+                BidAmount = request.BidAmount,
+                Status = "Pending"
+            };
+
+            _context.JobBids.Add(jobBid);
+            await _context.SaveChangesAsync();
+
+            return CreatedAtAction(nameof(GetJob), new { id = job.Id }, jobBid);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error submitting job bid: {ex.Message}");
+            return StatusCode(500, new { message = "Error submitting bid", error = ex.Message });
+        }
+    }
+
     // GET: api/jobs/category/{category}
     [AllowAnonymous]
     [HttpGet("category/{category}")]
@@ -255,4 +328,9 @@ public class UpdateJobRequest
     public string? Budget { get; set; }
     public string? Timeline { get; set; }
     public string? Status { get; set; }
+}
+public class CreateJobBidRequest
+{
+    public string? BidMessage { get; set; }
+    public decimal? BidAmount { get; set; }
 }
