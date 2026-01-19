@@ -14,9 +14,7 @@ public class Job
     [StringLength(200)]
     public string? Title { get; set; }
 
-    [Required]
-    [StringLength(50)]
-    public string? Category { get; set; }
+    public int? CategoryId { get; set; }  // Foreign key to ServiceCategory
 
     [Required]
     public string? Description { get; set; }
@@ -39,6 +37,8 @@ public class Job
     [StringLength(20)]
     public string? Status { get; set; } = "Open";  // "Open", "In Progress", "Completed", "Cancelled"
 
+    public bool IsBid { get; set; } = false;  // True if job has received at least one bid
+
     public int? AssignedProId { get; set; }  // ID of the Pro assigned to this job
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -51,4 +51,7 @@ public class Job
 
     [ForeignKey("AssignedProId")]
     public Pro? AssignedPro { get; set; }
+
+    [ForeignKey("CategoryId")]
+    public ServiceCategory? Category { get; set; }
 }
