@@ -18,6 +18,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<VerificationCode> VerificationCodes { get; set; }
     public DbSet<Job> Jobs { get; set; }
     public DbSet<JobBid> JobBids { get; set; }
+    public DbSet<Message> Messages { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -67,6 +68,12 @@ public class ApplicationDbContext : DbContext
             .HasOne(jb => jb.Pro)
             .WithMany()
             .HasForeignKey(jb => jb.ProId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Message>()
+            .HasOne(m => m.Job)
+            .WithMany()
+            .HasForeignKey(m => m.JobId)
             .OnDelete(DeleteBehavior.Cascade);
     }
 }

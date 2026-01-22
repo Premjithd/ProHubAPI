@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using ServiceProviderAPI.Data;
 using ServiceProviderAPI.Models;
 using System.Security.Claims;
+using System.Linq;
 
 namespace ServiceProviderAPI.Controllers;
 
@@ -504,6 +505,123 @@ public class JobsController : ControllerBase
             return StatusCode(500, new { message = "Error retrieving jobs", error = ex.Message });
         }
     }
+
+    // PUT: api/jobs/{jobId}/phases - Update all phases for a job
+    [Authorize]
+    [HttpPut("{jobId}/phases")]
+    public async Task<ActionResult> UpdateJobPhases(int jobId, [FromBody] UpdateJobPhasesRequest request)
+    {
+        try
+        {
+            var job = await _context.Jobs.FindAsync(jobId);
+            if (job == null)
+            {
+                return NotFound(new { message = "Job not found" });
+            }
+
+            // Verify user has permission to update this job
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            var userId = int.Parse(userIdClaim ?? "0");
+
+            if (job.UserId != userId && job.AssignedProId != userId)
+            {
+                return Forbid();
+            }
+
+            // Update the job phases as JSON
+            if (request.JobPhases != null)
+            {
+                job.JobPhases = System.Text.Json.JsonSerializer.Serialize(request.JobPhases);
+            }
+
+            job.UpdatedAt = DateTime.UtcNow;
+            _context.Jobs.Update(job);
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation($"Updated phases for job {jobId}");
+            return Ok(new { message = "Phases updated successfully", job });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error updating job phases: {ex.Message}");
+            return StatusCode(500, new { message = "Error updating phases", error = ex.Message });
+        }
+    }
+
+    // POST: api/jobs/{jobId}/phases/{phaseId}/toggle - Toggle phase completion
+    [Authorize]
+    [HttpPost("{jobId}/phases/{phaseId}/toggle")]
+    public async Task<ActionResult> TogglePhaseCompletion(int jobId, string phaseId)
+    {
+        try
+        {
+            var job = await _context.Jobs.FindAsync(jobId);
+            if (job == null)
+            {
+                return NotFound(new { message = "Job not found" });
+            }
+
+            // Verify user has permission to update this job
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            var userId = int.Parse(userIdClaim ?? "0");
+
+            if (job.UserId != userId && job.AssignedProId != userId)
+            {
+                return Forbid();
+            }
+
+            // Parse phases from JSON
+            if (string.IsNullOrEmpty(job.JobPhases))
+            {
+                return BadRequest(new { message = "No phases found for this job" });
+            }
+
+            var phases = System.Text.Json.JsonSerializer.Deserialize<List<JobPhaseDto>>(job.JobPhases);
+            if (phases == null)
+            {
+                return BadRequest(new { message = "Invalid phases data" });
+            }
+
+            var phase = phases.FirstOrDefault(p => p.Id == phaseId);
+            if (phase == null)
+            {
+                return NotFound(new { message = "Phase not found" });
+            }
+
+            // Toggle completion
+            phase.IsCompleted = !phase.IsCompleted;
+            phase.CompletedAt = phase.IsCompleted ? DateTime.UtcNow.ToString("O") : null;
+
+            // Update the job
+            job.JobPhases = System.Text.Json.JsonSerializer.Serialize(phases);
+            job.UpdatedAt = DateTime.UtcNow;
+            _context.Jobs.Update(job);
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation($"Toggled phase {phaseId} for job {jobId}");
+            return Ok(new { message = "Phase toggled successfully", phase });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error toggling phase: {ex.Message}");
+            return StatusCode(500, new { message = "Error toggling phase", error = ex.Message });
+        }
+    }
+}
+
+
+public class UpdateJobPhasesRequest
+{
+    public List<JobPhaseDto>? JobPhases { get; set; }
+}
+
+public class JobPhaseDto
+{
+    public string? Id { get; set; }
+    public string? Title { get; set; }
+    public string? Description { get; set; }
+    public bool IsCompleted { get; set; }
+    public string? CompletedAt { get; set; }
 }
 
 public class CreateJobRequest

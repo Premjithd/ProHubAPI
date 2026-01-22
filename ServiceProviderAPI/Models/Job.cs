@@ -41,6 +41,9 @@ public class Job
 
     public int? AssignedProId { get; set; }  // ID of the Pro assigned to this job
 
+    [StringLength(1000)]
+    public string? JobPhases { get; set; }  // JSON array of phases with completion status
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime? UpdatedAt { get; set; }

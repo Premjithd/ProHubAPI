@@ -28,6 +28,9 @@ try
     builder.Services.AddScoped<IJwtService, JwtService>();
     builder.Services.AddScoped<IVerificationService, VerificationService>();
 
+    // Add HttpContextAccessor for accessing current HTTP context
+    builder.Services.AddHttpContextAccessor();
+
     // Add HttpClient for external API calls (e.g., Nominatim address service)
     builder.Services.AddHttpClient();
 
