@@ -56,9 +56,8 @@ public class MessagesController : ControllerBase
             if (job == null)
                 return NotFound(new { message = "Job not found" });
 
-            // Get current user ID from claims
-            var userIdClaim = _httpContextAccessor.HttpContext?.User.FindFirst("UserId")?.Value 
-                ?? _httpContextAccessor.HttpContext?.User.FindFirst("ProId")?.Value;
+            // Get current user ID from claims (using NameIdentifier from JWT token)
+            var userIdClaim = _httpContextAccessor.HttpContext?.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
 
             if (!int.TryParse(userIdClaim, out int senderId))
                 return Unauthorized(new { message = "Unable to determine sender" });
