@@ -30,7 +30,12 @@ public class Message
 
     public DateTime? ReadAt { get; set; }
 
+    public int? MessageIndexId { get; set; }
+
     // Navigation properties
     [ForeignKey("JobId")]
     public virtual Job? Job { get; set; }
+
+    [ForeignKey("MessageIndexId")]
+    public virtual MessageIndex? MessageIndex { get; set; }
 }

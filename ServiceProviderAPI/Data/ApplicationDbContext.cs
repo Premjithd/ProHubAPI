@@ -19,6 +19,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<Job> Jobs { get; set; }
     public DbSet<JobBid> JobBids { get; set; }
     public DbSet<Message> Messages { get; set; }
+    public DbSet<MessageIndex> MessageIndexes { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -75,5 +76,17 @@ public class ApplicationDbContext : DbContext
             .WithMany()
             .HasForeignKey(m => m.JobId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Message>()
+            .HasOne(m => m.MessageIndex)
+            .WithMany(mi => mi.Messages)
+            .HasForeignKey(m => m.MessageIndexId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // Unique constraint on MessageIndex to ensure only one entry per user pair
+        modelBuilder.Entity<MessageIndex>()
+            .HasIndex(mi => new { mi.UserId1, mi.UserType1, mi.UserId2, mi.UserType2 })
+            .IsUnique()
+            .HasDatabaseName("IX_MessageIndex_UserPair");
     }
 }

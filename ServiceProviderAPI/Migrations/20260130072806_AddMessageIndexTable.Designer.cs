@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ServiceProviderAPI.Data;
 
@@ -11,9 +12,11 @@ using ServiceProviderAPI.Data;
 namespace ServiceProviderAPI.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260130072806_AddMessageIndexTable")]
+    partial class AddMessageIndexTable
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -113,9 +116,6 @@ namespace ServiceProviderAPI.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<bool>("IsMessageExchange")
-                        .HasColumnType("bit");
-
                     b.Property<int>("JobId")
                         .HasColumnType("int");
 
@@ -157,7 +157,7 @@ namespace ServiceProviderAPI.Migrations
                     b.Property<int>("JobId")
                         .HasColumnType("int");
 
-                    b.Property<int?>("MessageIndexId")
+                    b.Property<int>("MessageIndexId")
                         .HasColumnType("int");
 
                     b.Property<DateTime?>("ReadAt")
@@ -572,7 +572,8 @@ namespace ServiceProviderAPI.Migrations
                     b.HasOne("ServiceProviderAPI.Models.MessageIndex", "MessageIndex")
                         .WithMany("Messages")
                         .HasForeignKey("MessageIndexId")
-                        .OnDelete(DeleteBehavior.Cascade);
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("Job");
 

@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ServiceProviderAPI.Data;
 
@@ -11,9 +12,11 @@ using ServiceProviderAPI.Data;
 namespace ServiceProviderAPI.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260128074805_IncreaseJobPhasesFieldSize")]
+    partial class IncreaseJobPhasesFieldSize
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -113,9 +116,6 @@ namespace ServiceProviderAPI.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<bool>("IsMessageExchange")
-                        .HasColumnType("bit");
-
                     b.Property<int>("JobId")
                         .HasColumnType("int");
 
@@ -157,9 +157,6 @@ namespace ServiceProviderAPI.Migrations
                     b.Property<int>("JobId")
                         .HasColumnType("int");
 
-                    b.Property<int?>("MessageIndexId")
-                        .HasColumnType("int");
-
                     b.Property<DateTime?>("ReadAt")
                         .HasColumnType("datetime2");
 
@@ -181,48 +178,7 @@ namespace ServiceProviderAPI.Migrations
 
                     b.HasIndex("JobId");
 
-                    b.HasIndex("MessageIndexId");
-
                     b.ToTable("Messages");
-                });
-
-            modelBuilder.Entity("ServiceProviderAPI.Models.MessageIndex", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("InitiatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<DateTime?>("LastMessageAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("UserId1")
-                        .HasColumnType("int");
-
-                    b.Property<int>("UserId2")
-                        .HasColumnType("int");
-
-                    b.Property<string>("UserType1")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
-
-                    b.Property<string>("UserType2")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UserId1", "UserType1", "UserId2", "UserType2")
-                        .IsUnique()
-                        .HasDatabaseName("IX_MessageIndex_UserPair");
-
-                    b.ToTable("MessageIndexes");
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.Pro", b =>
@@ -569,14 +525,7 @@ namespace ServiceProviderAPI.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("ServiceProviderAPI.Models.MessageIndex", "MessageIndex")
-                        .WithMany("Messages")
-                        .HasForeignKey("MessageIndexId")
-                        .OnDelete(DeleteBehavior.Cascade);
-
                     b.Navigation("Job");
-
-                    b.Navigation("MessageIndex");
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.ProUser", b =>
@@ -613,11 +562,6 @@ namespace ServiceProviderAPI.Migrations
                     b.Navigation("Pro");
 
                     b.Navigation("ServiceCategory");
-                });
-
-            modelBuilder.Entity("ServiceProviderAPI.Models.MessageIndex", b =>
-                {
-                    b.Navigation("Messages");
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.Pro", b =>

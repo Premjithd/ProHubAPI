@@ -76,9 +76,28 @@ try
     });
 
     Console.WriteLine("🏗️ Building application...");
-    var app = builder.Build();
+    WebApplication? app = null;
+    try
+    {
+        app = builder.Build();
+        Console.WriteLine("✅ Application built successfully");
+    }
+    catch (Exception buildEx)
+    {
+        Console.WriteLine($"❌ Error building application: {buildEx.Message}");
+        Console.WriteLine($"Stack: {buildEx.StackTrace}");
+        if (buildEx.InnerException != null)
+        {
+            Console.WriteLine($"Inner Exception: {buildEx.InnerException.Message}");
+            Console.WriteLine($"Inner Stack: {buildEx.InnerException.StackTrace}");
+        }
+        throw;
+    }
 
-    Console.WriteLine("✅ Application built successfully");
+    if (app == null)
+    {
+        throw new InvalidOperationException("Application builder failed to create app");
+    }
 
     // Use CORS
     app.UseCors("AllowAngular");
