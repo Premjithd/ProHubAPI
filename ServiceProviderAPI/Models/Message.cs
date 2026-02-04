@@ -8,9 +8,6 @@ public class Message
     public int Id { get; set; }
 
     [Required]
-    public int JobId { get; set; }
-
-    [Required]
     public int SenderId { get; set; }  // User ID or Pro ID
 
     [Required]
@@ -33,9 +30,6 @@ public class Message
     public int? MessageIndexId { get; set; }
 
     // Navigation properties
-    [ForeignKey("JobId")]
-    public virtual Job? Job { get; set; }
-
     [ForeignKey("MessageIndexId")]
     public virtual MessageIndex? MessageIndex { get; set; }
 }

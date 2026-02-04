@@ -169,29 +169,6 @@ public class MessagesController : ControllerBase
         }
     }
 
-    // GET: api/messages/job/{jobId}
-    [HttpGet("job/{jobId}")]
-    public async Task<IActionResult> GetJobMessages(int jobId)
-    {
-        try
-        {
-            var job = await _context.Jobs.FindAsync(jobId);
-            if (job == null)
-                return NotFound(new { message = "Job not found" });
-
-            var messages = await _context.Messages
-                .Where(m => m.JobId == jobId)
-                .OrderBy(m => m.SentAt)
-                .ToListAsync();
-
-            return Ok(messages);
-        }
-        catch (Exception ex)
-        {
-            return BadRequest(new { error = ex.Message });
-        }
-    }
-
     // POST: api/messages/send (Direct message between any users)
     [HttpPost("send")]
     public async Task<IActionResult> SendDirectMessage([FromBody] SendDirectMessageRequest request)
@@ -215,16 +192,19 @@ public class MessagesController : ControllerBase
 
             // Determine recipient type based on the recipient ID
             string recipientType = "User"; // Default to User, could be Pro
-            var proRecipient = await _context.Pros.FirstOrDefaultAsync(p => p.Id == recipientId);
-            if (proRecipient != null)
-                recipientType = "Pro";
+            // var proRecipient = await _context.Pros.FirstOrDefaultAsync(p => p.Id == recipientId);
+            // if (proRecipient != null)
+            //     recipientType = "Pro";
+            if(senderType == "User")
+                {recipientType = "Pro";}
+            else
+                {recipientType = "User";}
 
             // Get or create MessageIndex entry
             var messageIndex = await GetOrCreateMessageIndex(senderId, senderType, recipientId, recipientType);
 
             var message = new Message
             {
-                JobId = 0, // Direct messages don't have a job ID
                 SenderId = senderId,
                 RecipientId = recipientId,
                 SenderType = senderType,
@@ -299,86 +279,6 @@ public class MessagesController : ControllerBase
         }
     }
 
-    // POST: api/messages/job/{jobId}
-    [HttpPost("job/{jobId}")]
-    public async Task<IActionResult> SendMessage(int jobId, [FromBody] SendMessageRequest request)
-    {
-        try
-        {
-            if (request == null)
-                return BadRequest(new { message = "Request body is required" });
-
-            if (string.IsNullOrWhiteSpace(request.Content))
-                return BadRequest(new { message = "Message content is required" });
-
-            var job = await _context.Jobs.FindAsync(jobId);
-            if (job == null)
-                return NotFound(new { message = $"Job with ID {jobId} not found" });
-
-            // Get current user ID from claims (using NameIdentifier from JWT token)
-            var userIdClaim = _httpContextAccessor.HttpContext?.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-
-            if (!int.TryParse(userIdClaim, out int senderId))
-                return Unauthorized(new { message = "Unable to determine sender" });
-
-            // Determine sender type and recipient
-            string senderType;
-            int recipientId;
-            string recipientType;
-
-            // Check if sender is the job owner (user)
-            if (job.UserId == senderId)
-            {
-                senderType = "User";
-                recipientId = job.AssignedProId ?? 0;
-                recipientType = "Pro";
-            }
-            // Check if sender is the assigned pro
-            else if (job.AssignedProId == senderId)
-            {
-                senderType = "Pro";
-                recipientId = job.UserId;
-                recipientType = "User";
-            }
-            else
-            {
-                return StatusCode(403, new { message = "You are not authorized to send messages for this job" });
-            }
-
-            if (recipientId == 0)
-                return BadRequest(new { message = "No recipient found for this job. Job may not have an assigned professional." });
-
-            // Get or create MessageIndex entry
-            var messageIndex = await GetOrCreateMessageIndex(senderId, senderType, recipientId, recipientType);
-
-            var message = new Message
-            {
-                JobId = jobId,
-                SenderId = senderId,
-                RecipientId = recipientId,
-                SenderType = senderType,
-                Content = request.Content,
-                SentAt = DateTime.UtcNow,
-                IsRead = false,
-                MessageIndexId = messageIndex.Id
-            };
-
-            _context.Messages.Add(message);
-            
-            // Update LastMessageAt in MessageIndex
-            messageIndex.LastMessageAt = DateTime.UtcNow;
-            _context.MessageIndexes.Update(messageIndex);
-            
-            await _context.SaveChangesAsync();
-
-            return CreatedAtAction(nameof(GetJobMessages), new { jobId }, message);
-        }
-        catch (Exception ex)
-        {
-            return BadRequest(new { error = ex.Message, details = ex.InnerException?.Message });
-        }
-    }
-
     // POST: api/messages/bid/{bidId}
     [HttpPost("bid/{bidId}")]
     public async Task<IActionResult> SendMessageToBid(int bidId, [FromBody] SendMessageRequest request)
@@ -414,7 +314,6 @@ public class MessagesController : ControllerBase
 
             var message = new Message
             {
-                JobId = bid.JobId,
                 SenderId = senderId,
                 RecipientId = bid.ProId,
                 SenderType = "User",
@@ -436,7 +335,7 @@ public class MessagesController : ControllerBase
             
             await _context.SaveChangesAsync();
 
-            return CreatedAtAction(nameof(GetJobMessages), new { jobId = bid.JobId }, message);
+            return CreatedAtAction(nameof(GetAllMessages), message);
         }
         catch (Exception ex)
         {

@@ -72,12 +72,6 @@ public class ApplicationDbContext : DbContext
             .OnDelete(DeleteBehavior.Cascade);
 
         modelBuilder.Entity<Message>()
-            .HasOne(m => m.Job)
-            .WithMany()
-            .HasForeignKey(m => m.JobId)
-            .OnDelete(DeleteBehavior.Cascade);
-
-        modelBuilder.Entity<Message>()
             .HasOne(m => m.MessageIndex)
             .WithMany(mi => mi.Messages)
             .HasForeignKey(m => m.MessageIndexId)
