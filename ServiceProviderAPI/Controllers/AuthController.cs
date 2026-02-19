@@ -152,4 +152,24 @@ public class AuthController : ControllerBase
             Email = pro.Email
         };
     }
+
+    [HttpPost("pro/logout")]
+    [Authorize(Roles = "Pro")]
+    public async Task<ActionResult> LogoutPro()
+    {
+        // In a stateless JWT-based system, logout is primarily client-side.
+        // This endpoint serves as a confirmation and can be used for future
+        // token blacklist implementation if needed.
+        return Ok(new { message = "Logged out successfully" });
+    }
+
+    [HttpPost("user/logout")]
+    [Authorize(Roles = "User")]
+    public async Task<ActionResult> LogoutUser()
+    {
+        // In a stateless JWT-based system, logout is primarily client-side.
+        // This endpoint serves as a confirmation and can be used for future
+        // token blacklist implementation if needed.
+        return Ok(new { message = "Logged out successfully" });
+    }
 }
