@@ -116,6 +116,96 @@ public class JobsController : ControllerBase
         }
     }
 
+    // GET: api/admin/users/{userId}/jobs - Get jobs posted by a specific user
+    [Authorize(Roles = "Admin")]
+    [HttpGet("users/{userId}/jobs")]
+    public async Task<ActionResult<IEnumerable<Job>>> GetUserJobs(int userId)
+    {
+        try
+        {
+            var jobs = await _context.Jobs
+                .Where(j => j.UserId == userId)
+                .Include(j => j.User)
+                .Include(j => j.Category)
+                .Include(j => j.AssignedPro)
+                .OrderByDescending(j => j.CreatedAt)
+                .Select(j => new
+                {
+                    j.Id,
+                    j.UserId,
+                    UserName = j.User != null ? (j.User.FirstName + " " + j.User.LastName) : "Unknown",
+                    j.Title,
+                    j.Description,
+                    j.Location,
+                    j.Budget,
+                    j.Timeline,
+                    j.Status,
+                    j.IsBid,
+                    j.AssignedProId,
+                    AssignedProBusinessName = j.AssignedPro != null ? (j.AssignedPro.BusinessName ?? j.AssignedPro.ProName) : null,
+                    j.JobPhases,
+                    j.Attachments,
+                    j.CreatedAt,
+                    j.UpdatedAt,
+                    CategoryId = j.CategoryId,
+                    Category = j.Category != null ? new { j.Category.Id, j.Category.Name } : null
+                })
+                .ToListAsync();
+
+            return Ok(jobs);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error retrieving user jobs: {ex.Message}");
+            return StatusCode(500, new { message = "Error retrieving user jobs", error = ex.Message });
+        }
+    }
+
+    // GET: api/admin/pros/{proId}/jobs - Get jobs assigned to a specific pro
+    [Authorize(Roles = "Admin")]
+    [HttpGet("pros/{proId}/jobs")]
+    public async Task<ActionResult<IEnumerable<Job>>> GetProJobs(int proId)
+    {
+        try
+        {
+            var jobs = await _context.Jobs
+                .Where(j => j.AssignedProId == proId)
+                .Include(j => j.User)
+                .Include(j => j.Category)
+                .Include(j => j.AssignedPro)
+                .OrderByDescending(j => j.CreatedAt)
+                .Select(j => new
+                {
+                    j.Id,
+                    j.UserId,
+                    UserName = j.User != null ? (j.User.FirstName + " " + j.User.LastName) : "Unknown",
+                    j.Title,
+                    j.Description,
+                    j.Location,
+                    j.Budget,
+                    j.Timeline,
+                    j.Status,
+                    j.IsBid,
+                    j.AssignedProId,
+                    AssignedProBusinessName = j.AssignedPro != null ? (j.AssignedPro.BusinessName ?? j.AssignedPro.ProName) : null,
+                    j.JobPhases,
+                    j.Attachments,
+                    j.CreatedAt,
+                    j.UpdatedAt,
+                    CategoryId = j.CategoryId,
+                    Category = j.Category != null ? new { j.Category.Id, j.Category.Name } : null
+                })
+                .ToListAsync();
+
+            return Ok(jobs);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error retrieving pro jobs: {ex.Message}");
+            return StatusCode(500, new { message = "Error retrieving pro jobs", error = ex.Message });
+        }
+    }
+
     // GET: api/jobs/{id}/bids
     [Authorize]
     [HttpGet("{id}/bids")]

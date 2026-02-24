@@ -14,7 +14,8 @@ public class ApplicationDbContext : DbContext
     public DbSet<User> Users { get; set; }
     public DbSet<Service> Services { get; set; }
     public DbSet<ServiceCategory> ServiceCategories { get; set; }
-    public DbSet<ProUser> ProUsers { get; set; }
+    public DbSet<AdminUser> AdminUsers { get; set; }
+    public DbSet<AdminInvitation> AdminInvitations { get; set; }
     public DbSet<VerificationCode> VerificationCodes { get; set; }
     public DbSet<Job> Jobs { get; set; }
     public DbSet<JobBid> JobBids { get; set; }
@@ -25,18 +26,29 @@ public class ApplicationDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
-        modelBuilder.Entity<ProUser>()
-            .HasKey(pu => new { pu.ProId, pu.UserId });
+        modelBuilder.Entity<AdminUser>()
+            .HasKey(au => au.Id);
 
-        modelBuilder.Entity<ProUser>()
-            .HasOne(pu => pu.Pro)
-            .WithMany(p => p.ProUsers)
-            .HasForeignKey(pu => pu.ProId);
+        modelBuilder.Entity<AdminUser>()
+            .HasOne(au => au.Pro)
+            .WithMany(p => p.AdminUsers)
+            .HasForeignKey(au => au.ProId)
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.SetNull);
 
-        modelBuilder.Entity<ProUser>()
-            .HasOne(pu => pu.User)
-            .WithMany(u => u.ProUsers)
-            .HasForeignKey(pu => pu.UserId);
+        modelBuilder.Entity<AdminUser>()
+            .HasOne(au => au.User)
+            .WithMany(u => u.AdminUsers)
+            .HasForeignKey(au => au.UserId)
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<AdminInvitation>()
+            .HasIndex(ai => ai.Token)
+            .IsUnique();
+
+        modelBuilder.Entity<AdminInvitation>()
+            .HasIndex(ai => ai.Email);
 
         modelBuilder.Entity<Service>()
             .HasOne(s => s.Pro)

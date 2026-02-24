@@ -26,17 +26,17 @@ public class ProUsersController : ControllerBase
         if (pro == null)
             return NotFound("Pro not found");
 
-        var users = await _context.ProUsers
-            .Where(pu => pu.ProId == proId)
-            .Include(pu => pu.User)
-            .Select(pu => new UserDto
+        var users = await _context.AdminUsers
+            .Where(au => au.ProId == proId)
+            .Include(au => au.User)
+            .Select(au => new UserDto
             {
-                Id = pu.User.Id,
-                Name = $"{pu.User.FirstName} {pu.User.LastName}",
-                Email = pu.User.Email,
-                PhoneNumber = pu.User.PhoneNumber,
-                IsEmailVerified = pu.User.IsEmailVerified,
-                IsPhoneVerified = pu.User.IsPhoneVerified
+                Id = au.User.Id,
+                Name = $"{au.User.FirstName} {au.User.LastName}",
+                Email = au.User.Email,
+                PhoneNumber = au.User.PhoneNumber,
+                IsEmailVerified = au.User.IsEmailVerified,
+                IsPhoneVerified = au.User.IsPhoneVerified
             })
             .ToListAsync();
 
@@ -56,20 +56,20 @@ public class ProUsersController : ControllerBase
             return NotFound("User not found");
 
         // Check if relationship already exists
-        var existingRelation = await _context.ProUsers
-            .FirstOrDefaultAsync(pu => pu.ProId == proId && pu.UserId == request.UserId);
+        var existingRelation = await _context.AdminUsers
+            .FirstOrDefaultAsync(au => au.ProId == proId && au.UserId == request.UserId);
 
         if (existingRelation != null)
             return BadRequest("User is already added under this pro");
 
-        var proUser = new ProUser
+        var adminUser = new AdminUser
         {
             ProId = proId,
             UserId = request.UserId,
             CreatedAt = DateTime.UtcNow
         };
 
-        _context.ProUsers.Add(proUser);
+        _context.AdminUsers.Add(adminUser);
         await _context.SaveChangesAsync();
 
         return Ok(new { message = "User added successfully under pro" });
@@ -79,13 +79,13 @@ public class ProUsersController : ControllerBase
     [HttpDelete("pro/{proId}/users/{userId}")]
     public async Task<ActionResult> RemoveUserFromPro(int proId, int userId)
     {
-        var proUser = await _context.ProUsers
-            .FirstOrDefaultAsync(pu => pu.ProId == proId && pu.UserId == userId);
+        var adminUser = await _context.AdminUsers
+            .FirstOrDefaultAsync(au => au.ProId == proId && au.UserId == userId);
 
-        if (proUser == null)
+        if (adminUser == null)
             return NotFound("Relationship not found");
 
-        _context.ProUsers.Remove(proUser);
+        _context.AdminUsers.Remove(adminUser);
         await _context.SaveChangesAsync();
 
         return Ok(new { message = "User removed successfully from pro" });
@@ -99,18 +99,18 @@ public class ProUsersController : ControllerBase
         if (user == null)
             return NotFound("User not found");
 
-        var pros = await _context.ProUsers
-            .Where(pu => pu.UserId == userId)
-            .Include(pu => pu.Pro)
-            .Select(pu => new ProDto
+        var pros = await _context.AdminUsers
+            .Where(au => au.UserId == userId)
+            .Include(au => au.Pro)
+            .Select(au => new ProDto
             {
-                Id = pu.Pro.Id,
-                Name = pu.Pro.ProName,
-                Email = pu.Pro.Email,
-                PhoneNumber = pu.Pro.PhoneNumber,
-                BusinessName = pu.Pro.BusinessName,
-                IsEmailVerified = pu.Pro.IsEmailVerified,
-                IsPhoneVerified = pu.Pro.IsPhoneVerified
+                Id = au.Pro.Id,
+                Name = au.Pro.ProName,
+                Email = au.Pro.Email,
+                PhoneNumber = au.Pro.PhoneNumber,
+                BusinessName = au.Pro.BusinessName,
+                IsEmailVerified = au.Pro.IsEmailVerified,
+                IsPhoneVerified = au.Pro.IsPhoneVerified
             })
             .ToListAsync();
 

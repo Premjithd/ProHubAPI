@@ -54,11 +54,11 @@ public class AuthController : ControllerBase
             return Unauthorized(new { message = "Invalid email or password" });
         }
 
-        var token = _jwtService.GenerateToken(user, "User");
+        var token = _jwtService.GenerateToken(user, user.UserType ?? "User");
         return new LoginResponse
         {
             Token = token,
-            Role = "User",
+            Role = user.UserType ?? "User",
             Id = user.Id,
             FirstName = user.FirstName,
             LastName = user.LastName,
@@ -153,23 +153,73 @@ public class AuthController : ControllerBase
         };
     }
 
-    [HttpPost("pro/logout")]
-    [Authorize(Roles = "Pro")]
-    public async Task<ActionResult> LogoutPro()
+    [HttpPost("accept-admin-invite")]
+    public async Task<ActionResult<LoginResponse>> AcceptAdminInvitation([FromBody] AcceptAdminInvitationRequest request)
     {
-        // In a stateless JWT-based system, logout is primarily client-side.
-        // This endpoint serves as a confirmation and can be used for future
-        // token blacklist implementation if needed.
-        return Ok(new { message = "Logged out successfully" });
-    }
+        if (string.IsNullOrEmpty(request.Token) || string.IsNullOrEmpty(request.Password) || 
+            string.IsNullOrEmpty(request.FirstName) || string.IsNullOrEmpty(request.LastName))
+        {
+            return BadRequest(new { message = "Token, password, first name, and last name are required" });
+        }
 
-    [HttpPost("user/logout")]
-    [Authorize(Roles = "User")]
-    public async Task<ActionResult> LogoutUser()
-    {
-        // In a stateless JWT-based system, logout is primarily client-side.
-        // This endpoint serves as a confirmation and can be used for future
-        // token blacklist implementation if needed.
-        return Ok(new { message = "Logged out successfully" });
+        try
+        {
+            // Find the invitation
+            var invitation = await _context.AdminInvitations
+                .FirstOrDefaultAsync(ai => ai.Token == request.Token);
+
+            if (invitation == null)
+                return BadRequest(new { message = "Invalid invitation token" });
+
+            if (invitation.IsUsed)
+                return BadRequest(new { message = "This invitation has already been used" });
+
+            if (invitation.ExpiresAt <= DateTime.UtcNow)
+                return BadRequest(new { message = "This invitation has expired" });
+
+            // Check if email already exists in Users table
+            var existingUser = await _context.Users
+                .FirstOrDefaultAsync(u => u.Email == invitation.Email);
+
+            if (existingUser != null)
+                return BadRequest(new { message = "An account already exists for this email" });
+
+            // Create new user with Admin role
+            var user = new User
+            {
+                Email = invitation.Email,
+                FirstName = request.FirstName,
+                LastName = request.LastName,
+                PasswordHash = BC.HashPassword(request.Password),
+                UserType = "Admin",
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            _context.Users.Add(user);
+
+            // Mark invitation as used
+            invitation.IsUsed = true;
+            invitation.UsedAt = DateTime.UtcNow;
+            _context.AdminInvitations.Update(invitation);
+
+            await _context.SaveChangesAsync();
+
+            // Generate token for new admin user
+            var token = _jwtService.GenerateToken(user, "Admin");
+            return new LoginResponse
+            {
+                Token = token,
+                Role = "Admin",
+                Id = user.Id,
+                FirstName = user.FirstName,
+                LastName = user.LastName,
+                Email = user.Email
+            };
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = "Error processing invitation", error = ex.Message });
+        }
     }
 }

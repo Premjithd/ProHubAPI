@@ -27,6 +27,7 @@ try
     Console.WriteLine("🔐 Adding JWT services...");
     builder.Services.AddScoped<IJwtService, JwtService>();
     builder.Services.AddScoped<IVerificationService, VerificationService>();
+    builder.Services.AddScoped<IEmailService, SmtpEmailService>();
 
     // Add HttpContextAccessor for accessing current HTTP context
     builder.Services.AddHttpContextAccessor();

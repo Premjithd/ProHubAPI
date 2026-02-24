@@ -47,7 +47,7 @@ public class User
     [StringLength(20)]
     public string? ZipPostalCode { get; set; }
     
-    public ICollection<ProUser>? ProUsers { get; set; }
+    public ICollection<AdminUser>? AdminUsers { get; set; }
     public bool IsEmailVerified { get; set; }
     public bool IsPhoneVerified { get; set; }
     public DateTime CreatedAt { get; set; }

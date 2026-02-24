@@ -21,3 +21,21 @@ public class LoginResponse
     public string LastName { get; set; }
     public string Email { get; set; }
 }
+
+public class AcceptAdminInvitationRequest
+{
+    [Required]
+    public string Token { get; set; }
+
+    [Required]
+    [StringLength(100, MinimumLength = 2)]
+    public string FirstName { get; set; }
+
+    [Required]
+    [StringLength(100, MinimumLength = 2)]
+    public string LastName { get; set; }
+
+    [Required]
+    [StringLength(255, MinimumLength = 6)]
+    public string Password { get; set; }
+}

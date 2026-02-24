@@ -20,24 +20,68 @@ public class MessagesController : ControllerBase
         _httpContextAccessor = httpContextAccessor;
     }
 
-    // GET: api/messages
+    // GET: api/messages or api/messages?userId1=X&userType1=Type&userId2=Y&userType2=Type
     [HttpGet]
-    public async Task<IActionResult> GetAllMessages()
+    public async Task<IActionResult> GetAllMessages(
+        [FromQuery] int? userId1, 
+        [FromQuery] string? userType1,
+        [FromQuery] int? userId2,
+        [FromQuery] string? userType2)
     {
         try
         {
-            var userIdClaim = _httpContextAccessor.HttpContext?.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            // If specific user pair parameters are provided, get messages between them
+            if (userId1.HasValue && userId2.HasValue && !string.IsNullOrEmpty(userType1) && !string.IsNullOrEmpty(userType2))
+            {
+                // Get the MessageIndex for this conversation pair
+                var messageIndex = await _context.MessageIndexes
+                    .FirstOrDefaultAsync(mi => 
+                        (mi.UserId1 == userId1 && mi.UserType1 == userType1 && 
+                         mi.UserId2 == userId2 && mi.UserType2 == userType2) ||
+                        (mi.UserId1 == userId2 && mi.UserType1 == userType2 && 
+                         mi.UserId2 == userId1 && mi.UserType2 == userType1));
 
-            if (!int.TryParse(userIdClaim, out int userId))
-                return Unauthorized(new { message = "Unable to determine user" });
+                if (messageIndex == null)
+                {
+                    // No messages found for this conversation pair
+                    return Ok(new object[0]);
+                }
 
-            // Get all messages where current user is either sender or recipient
-            var messages = await _context.Messages
-                .Where(m => m.SenderId == userId || m.RecipientId == userId)
-                .OrderByDescending(m => m.SentAt)
-                .ToListAsync();
+                // Get all messages for this MessageIndex (exclude navigation properties to avoid circular references)
+                var messages = await _context.Messages
+                    .Where(m => m.MessageIndexId == messageIndex.Id)
+                    .OrderBy(m => m.SentAt)
+                    .Select(m => new
+                    {
+                        m.Id,
+                        m.SenderId,
+                        m.RecipientId,
+                        m.SenderType,
+                        m.Content,
+                        m.SentAt,
+                        m.IsRead,
+                        m.ReadAt,
+                        m.MessageIndexId
+                    })
+                    .ToListAsync();
 
-            return Ok(messages);
+                return Ok(messages);
+            }
+
+            // // Otherwise, get all messages for the current authenticated user from claims
+            // var userIdClaim = _httpContextAccessor.HttpContext?.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+            // if (!int.TryParse(userIdClaim, out int currentUserId))
+            //     return Unauthorized(new { message = "Unable to determine user" });
+
+            // // Get all messages where current user is either sender or recipient
+            // var allMessages = await _context.Messages
+            //     .Where(m => m.SenderId == currentUserId || m.RecipientId == currentUserId)
+            //     .OrderByDescending(m => m.SentAt)
+            //     .ToListAsync();
+
+            // return Ok(allMessages);
+            return Ok(new object[0]);
         }
         catch (Exception ex)
         {
@@ -45,16 +89,24 @@ public class MessagesController : ControllerBase
         }
     }
 
-    // GET: api/messages/conversations?userType=User|Pro
+    // GET: api/messages/conversations?userId=1&userType=User|Pro
     [HttpGet("conversations")]
-    public async Task<IActionResult> GetConversationPartners([FromQuery] string userType)
+    public async Task<IActionResult> GetConversationPartners([FromQuery] int? userId, [FromQuery] string userType)
     {
         try
         {
-            var userIdClaim = _httpContextAccessor.HttpContext?.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-
-            if (!int.TryParse(userIdClaim, out int userId))
-                return Unauthorized(new { message = "Unable to determine user" });
+            // If userId is not provided, get it from claims
+            int actualUserId;
+            if (userId.HasValue && userId.Value > 0)
+            {
+                actualUserId = userId.Value;
+            }
+            else
+            {
+                var userIdClaim = _httpContextAccessor.HttpContext?.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (!int.TryParse(userIdClaim, out actualUserId))
+                    return Unauthorized(new { message = "Unable to determine user" });
+            }
 
             // Validate userType parameter
             if (string.IsNullOrEmpty(userType) || (userType != "User" && userType != "Pro"))
@@ -62,8 +114,8 @@ public class MessagesController : ControllerBase
 
             // Get all MessageIndex entries where current user is involved
             var messageIndexes = await _context.MessageIndexes
-                .Where(mi => (mi.UserId1 == userId && mi.UserType1 == userType) || 
-                             (mi.UserId2 == userId && mi.UserType2 == userType))
+                .Where(mi => (mi.UserId1 == actualUserId && mi.UserType1 == userType) || 
+                             (mi.UserId2 == actualUserId && mi.UserType2 == userType))
                 .OrderByDescending(mi => mi.LastMessageAt)
                 .ToListAsync();
 
@@ -71,8 +123,8 @@ public class MessagesController : ControllerBase
             messageIndexes = messageIndexes
                 .DistinctBy(mi => new 
                 { 
-                    PartnerId = (mi.UserId1 == userId && mi.UserType1 == userType) ? mi.UserId2 : mi.UserId1,
-                    PartnerType = (mi.UserId1 == userId && mi.UserType1 == userType) ? mi.UserType2 : mi.UserType1
+                    PartnerId = (mi.UserId1 == actualUserId && mi.UserType1 == userType) ? mi.UserId2 : mi.UserId1,
+                    PartnerType = (mi.UserId1 == actualUserId && mi.UserType1 == userType) ? mi.UserType2 : mi.UserType1
                 })
                 .ToList();
 
@@ -85,13 +137,13 @@ public class MessagesController : ControllerBase
                 string partnerType;
 
                 // Check if current user is on the first position
-                if (messageIndex.UserId1 == userId && messageIndex.UserType1 == userType)
+                if (messageIndex.UserId1 == actualUserId && messageIndex.UserType1 == userType)
                 {
                     partnerId = messageIndex.UserId2;
                     partnerType = messageIndex.UserType2;
                 }
                 // Check if current user is on the second position
-                else if (messageIndex.UserId2 == userId && messageIndex.UserType2 == userType)
+                else if (messageIndex.UserId2 == actualUserId && messageIndex.UserType2 == userType)
                 {
                     partnerId = messageIndex.UserId1;
                     partnerType = messageIndex.UserType1;
@@ -145,7 +197,7 @@ public class MessagesController : ControllerBase
                 var unreadCount = await _context.Messages
                     .Where(m => m.MessageIndexId == messageIndex.Id && 
                                 m.SenderId == partnerId && 
-                                m.RecipientId == userId && 
+                                m.RecipientId == actualUserId && 
                                 !m.IsRead)
                     .CountAsync();
 
