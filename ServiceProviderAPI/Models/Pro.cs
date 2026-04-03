@@ -43,7 +43,15 @@ public class Pro
     
     [StringLength(20)]
     public string? ZipPostalCode { get; set; }
-    
+
+    // Geolocation (NEW)
+    public double? Latitude { get; set; }
+
+    public double? Longitude { get; set; }
+
+    // Service Radius in kilometers (NEW) - default 25 km
+    public int ServiceRadiusKm { get; set; } = 25;
+
     public ICollection<Service>? Services { get; set; }
     public ICollection<AdminUser>? AdminUsers { get; set; }
     public bool IsEmailVerified { get; set; }

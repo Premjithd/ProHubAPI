@@ -21,6 +21,12 @@ public class ApplicationDbContext : DbContext
     public DbSet<JobBid> JobBids { get; set; }
     public DbSet<Message> Messages { get; set; }
     public DbSet<MessageIndex> MessageIndexes { get; set; }
+    public DbSet<Payment> Payments { get; set; }  // Phase 1C
+    public DbSet<Material> Materials { get; set; }  // Phase 1D
+    public DbSet<ServiceArea> ServiceAreas { get; set; }  // Phase 2
+    public DbSet<JobInsurance> JobInsurances { get; set; }  // Phase 1E
+    public DbSet<JobNotification> JobNotifications { get; set; }  // Phase 1B
+    public DbSet<JobCompletion> JobCompletions { get; set; }  // Phase 5
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -94,5 +100,58 @@ public class ApplicationDbContext : DbContext
             .HasIndex(mi => new { mi.UserId1, mi.UserType1, mi.UserId2, mi.UserType2 })
             .IsUnique()
             .HasDatabaseName("IX_MessageIndex_UserPair");
+
+        // Payment entity configurations (Phase 1C)
+        modelBuilder.Entity<Payment>()
+            .HasOne(p => p.Job)
+            .WithMany()
+            .HasForeignKey(p => p.JobId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Payment>()
+            .HasOne(p => p.Bid)
+            .WithMany()
+            .HasForeignKey(p => p.BidId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<Payment>()
+            .HasOne(p => p.User)
+            .WithMany()
+            .HasForeignKey(p => p.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // Material entity configurations (Phase 1D)
+        modelBuilder.Entity<Material>()
+            .HasOne(m => m.Category)
+            .WithMany()
+            .HasForeignKey(m => m.ServiceCategoryId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // JobInsurance entity configurations (Phase 1E)
+        modelBuilder.Entity<JobInsurance>()
+            .HasOne(ji => ji.Job)
+            .WithMany()
+            .HasForeignKey(ji => ji.JobId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // JobNotification entity configurations (Phase 1B)
+        modelBuilder.Entity<JobNotification>()
+            .HasOne(jn => jn.Job)
+            .WithMany()
+            .HasForeignKey(jn => jn.JobId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<JobNotification>()
+            .HasOne(jn => jn.Pro)
+            .WithMany()
+            .HasForeignKey(jn => jn.ProId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // JobCompletion entity configurations (Phase 5)
+        modelBuilder.Entity<JobCompletion>()
+            .HasOne(jc => jc.Job)
+            .WithMany()
+            .HasForeignKey(jc => jc.JobId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

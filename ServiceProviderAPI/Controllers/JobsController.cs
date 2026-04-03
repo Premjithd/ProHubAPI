@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ServiceProviderAPI.Data;
 using ServiceProviderAPI.Models;
+using ServiceProviderAPI.DTOs;
 using System.Security.Claims;
 using System.Linq;
 
@@ -455,6 +456,11 @@ public class JobsController : ControllerBase
                 ProId = proId,
                 BidMessage = request.BidMessage,
                 BidAmount = request.BidAmount,
+                // Phase 1A fields
+                CommenceDate = request.CommenceDate,
+                ExpectedDurationDays = request.ExpectedDurationDays,
+                MaterialsDescription = request.MaterialsDescription,
+                ExpiresAt = request.ExpiresAt ?? DateTime.UtcNow.AddDays(30), // Default to 30 days if not provided
                 Status = "Pending"
             };
 
@@ -734,9 +740,4 @@ public class UpdateJobRequest
     public string? Budget { get; set; }
     public string? Timeline { get; set; }
     public string? Status { get; set; }
-}
-public class CreateJobBidRequest
-{
-    public string? BidMessage { get; set; }
-    public decimal? BidAmount { get; set; }
 }

@@ -19,8 +19,18 @@ public class JobBid
     [Column(TypeName = "decimal(18,2)")]
     public decimal? BidAmount { get; set; }
 
+    // Enhanced Quote Fields (NEW)
+    public DateTime? CommenceDate { get; set; }  // Expected date work will start
+
+    public int? ExpectedDurationDays { get; set; }  // Expected number of days to complete
+
+    [StringLength(2000)]
+    public string? MaterialsDescription { get; set; }  // Materials/brand selection details
+
+    public DateTime? ExpiresAt { get; set; }  // Quote expiry deadline
+
     [StringLength(20)]
-    public string? Status { get; set; } = "Pending";  // "Pending", "Accepted", "Rejected", "Withdrawn"
+    public string? Status { get; set; } = "Pending";  // "Pending", "Accepted", "Rejected", "Withdrawn", "Expired"
 
     public bool IsMessageExchange { get; set; } = false;
 

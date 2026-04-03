@@ -21,11 +21,49 @@ public class Job
 
     [Required]
     [StringLength(150)]
-    public string? Location { get; set; }
+    public string? Location { get; set; }  // Kept for backward compatibility
+
+    // Structured Service Address (NEW)
+    [StringLength(100)]
+    public string? ServiceAddressHouse { get; set; }
+
+    [StringLength(255)]
+    public string? ServiceAddressStreet1 { get; set; }
+
+    [StringLength(255)]
+    public string? ServiceAddressStreet2 { get; set; }
+
+    [StringLength(100)]
+    public string? ServiceAddressCity { get; set; }
+
+    [StringLength(100)]
+    public string? ServiceAddressState { get; set; }
+
+    [StringLength(100)]
+    public string? ServiceAddressCountry { get; set; }
+
+    [StringLength(20)]
+    public string? ServiceAddressPIN { get; set; }
+
+    // Contact Person for Service Request (NEW)
+    [StringLength(100)]
+    public string? ContactPersonName { get; set; }
+
+    [Phone]
+    public string? ContactPersonPhone { get; set; }
+
+    // Geolocation (NEW)
+    public double? Latitude { get; set; }
+
+    public double? Longitude { get; set; }
+
+    // Budget (UPDATED to decimal INR)
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal? EstimatedBudget { get; set; }  // In Indian Rupees (₹)
 
     [Required]
     [StringLength(50)]
-    public string? Budget { get; set; }  // e.g., "under-100", "100-250", etc.
+    public string? Budget { get; set; }  // Kept for backward compatibility, will be deprecated
 
     [Required]
     [StringLength(50)]
@@ -35,7 +73,7 @@ public class Job
     public string? Attachments { get; set; }  // JSON array of file URLs
 
     [StringLength(20)]
-    public string? Status { get; set; } = "Open";  // "Open", "In Progress", "Completed", "Cancelled"
+    public string? Status { get; set; } = "Open";  // "Open", "Bid Accepted", "Payment Made", "Pro Confirmed", "In Progress", "Completion Submitted", "Completed", "Cancelled"
 
     public bool IsBid { get; set; } = false;  // True if job has received at least one bid
 

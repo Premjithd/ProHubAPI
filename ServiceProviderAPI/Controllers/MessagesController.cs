@@ -13,11 +13,13 @@ public class MessagesController : ControllerBase
 {
     private readonly ApplicationDbContext _context;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly ILogger<MessagesController> _logger;
 
-    public MessagesController(ApplicationDbContext context, IHttpContextAccessor httpContextAccessor)
+    public MessagesController(ApplicationDbContext context, IHttpContextAccessor httpContextAccessor, ILogger<MessagesController> logger)
     {
         _context = context;
         _httpContextAccessor = httpContextAccessor;
+        _logger = logger;
     }
 
     // GET: api/messages or api/messages?userId1=X&userType1=Type&userId2=Y&userType2=Type
@@ -392,6 +394,35 @@ public class MessagesController : ControllerBase
         catch (Exception ex)
         {
             return BadRequest(new { error = ex.Message, details = ex.InnerException?.Message });
+        }
+    }
+
+    // GET: api/messages/job/{jobId}
+    [HttpGet("job/{jobId}")]
+    public async Task<IActionResult> GetMessagesByJob(int jobId)
+    {
+        try
+        {
+            _logger.LogInformation($"Getting messages for job {jobId}");
+
+            // Verify job exists
+            var job = await _context.Jobs.FindAsync(jobId);
+            if (job == null)
+            {
+                _logger.LogWarning($"Job {jobId} not found");
+                return NotFound(new { message = "Job not found" });
+            }
+
+            // For now, return empty array - messages will be populated once JobId is properly tracked
+            // This prevents 500 errors while the feature is being implemented
+            var emptyMessages = new object[0];
+            return Ok(emptyMessages);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error getting messages for job {jobId}: {ex.Message}\n{ex.StackTrace}");
+            // Return empty array instead of error to prevent blocking the UI
+            return Ok(new object[0]);
         }
     }
 
