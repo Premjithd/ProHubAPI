@@ -304,8 +304,35 @@ public class JobsController : ControllerBase
 
             _context.Jobs.Add(job);
             await _context.SaveChangesAsync();
-            
+
             _logger.LogInformation($"✅ Job created successfully with ID: {job.Id}");
+
+            // Notify pros whose services match this job's category
+            if (job.CategoryId.HasValue)
+            {
+                var matchingProIds = await _context.Services
+                    .Where(s => s.ServiceCategoryId == job.CategoryId)
+                    .Select(s => s.ProId)
+                    .Distinct()
+                    .ToListAsync();
+
+                if (matchingProIds.Count > 0)
+                {
+                    var notifications = matchingProIds.Select(proId => new JobNotification
+                    {
+                        JobId = job.Id,
+                        ProId = proId,
+                        NotificationType = "JobPosted",
+                        Message = $"New job matching your services: {job.Title}",
+                        DeliveryStatus = "Sent",
+                        DeliveredAt = DateTime.UtcNow,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                    _context.JobNotifications.AddRange(notifications);
+                    await _context.SaveChangesAsync();
+                    _logger.LogInformation($"📢 Notified {matchingProIds.Count} pros about job {job.Id}");
+                }
+            }
 
             return CreatedAtAction(nameof(GetJob), new { id = job.Id }, job);
         }
@@ -390,10 +417,10 @@ public class JobsController : ControllerBase
         }
     }
 
-    // PUT: api/jobs/{id}/complete - Mark a job as completed
+    // PUT: api/jobs/{id}/complete - Pro submits completion (awaits consumer verification)
     [Authorize]
     [HttpPut("{id}/complete")]
-    public async Task<ActionResult<Job>> MarkJobCompleted(int id)
+    public async Task<ActionResult<Job>> MarkJobCompleted(int id, [FromBody] SubmitCompletionRequest? request)
     {
         try
         {
@@ -408,12 +435,29 @@ public class JobsController : ControllerBase
             if (job == null)
                 return NotFound("Job not found");
 
-            // Verify that the job is assigned to this Pro
             if (job.AssignedProId != proId)
                 return Forbid("This job is not assigned to you");
 
-            job.Status = "Completed";
-            _context.Jobs.Update(job);
+            if (job.Status == "Completion Submitted" || job.Status == "Completed")
+                return BadRequest(new { message = "Completion already submitted for this job" });
+
+            // Remove any prior completion record before creating new one
+            var existing = await _context.JobCompletions.FirstOrDefaultAsync(c => c.JobId == id);
+            if (existing != null)
+                _context.JobCompletions.Remove(existing);
+
+            var completion = new JobCompletion
+            {
+                JobId = id,
+                CompletionNotes = request?.CompletionNotes,
+                Status = "Submitted",
+                CreatedAt = DateTime.UtcNow,
+                CompletedAt = DateTime.UtcNow
+            };
+
+            _context.JobCompletions.Add(completion);
+            job.Status = "Completion Submitted";
+            job.UpdatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
 
             return Ok(job);
@@ -705,6 +749,11 @@ public class JobsController : ControllerBase
     }
 }
 
+
+public class SubmitCompletionRequest
+{
+    public string? CompletionNotes { get; set; }
+}
 
 public class UpdateJobPhasesRequest
 {
