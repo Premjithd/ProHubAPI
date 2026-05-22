@@ -4,7 +4,6 @@ using Microsoft.EntityFrameworkCore;
 using ServiceProviderAPI.Data;
 using ServiceProviderAPI.DTOs;
 using ServiceProviderAPI.Models;
-using System.Security.Claims;
 
 namespace ServiceProviderAPI.Controllers;
 
@@ -114,16 +113,11 @@ public class MaterialsController : ControllerBase
     /// POST: api/materials - Create new material (Admin only)
     /// </summary>
     [HttpPost]
-    [Authorize]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<MaterialDto>> CreateMaterial([FromBody] CreateMaterialRequest request)
     {
         try
         {
-            // Verify user is admin (basic check - enhance with role-based authorization)
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (string.IsNullOrEmpty(userIdClaim))
-                return Unauthorized("User not found");
-
             // Verify category exists
             var category = await _context.ServiceCategories.FindAsync(request.ServiceCategoryId);
             if (category == null)
@@ -172,7 +166,7 @@ public class MaterialsController : ControllerBase
     /// PUT: api/materials/{id} - Update material
     /// </summary>
     [HttpPut("{id}")]
-    [Authorize]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> UpdateMaterial(int id, [FromBody] UpdateMaterialRequest request)
     {
         try
@@ -215,7 +209,7 @@ public class MaterialsController : ControllerBase
     /// DELETE: api/materials/{id} - Delete material (soft delete by setting IsActive to false)
     /// </summary>
     [HttpDelete("{id}")]
-    [Authorize]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> DeleteMaterial(int id)
     {
         try
