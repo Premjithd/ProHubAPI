@@ -1,3 +1,5 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -14,11 +16,13 @@ public class AuthController : ControllerBase
 {
     private readonly ApplicationDbContext _context;
     private readonly IJwtService _jwtService;
+    private readonly ITokenBlacklistService _blacklist;
 
-    public AuthController(ApplicationDbContext context, IJwtService jwtService)
+    public AuthController(ApplicationDbContext context, IJwtService jwtService, ITokenBlacklistService blacklist)
     {
         _context = context;
         _jwtService = jwtService;
+        _blacklist = blacklist;
     }
 
     [HttpPost("pro/login")]
@@ -32,7 +36,7 @@ public class AuthController : ControllerBase
             return Unauthorized(new { message = "Invalid email or password" });
         }
 
-        var token = _jwtService.GenerateToken(pro, "Pro");
+        var (token, _) = _jwtService.GenerateToken(pro, "Pro");
         return new LoginResponse
         {
             Token = token,
@@ -54,7 +58,7 @@ public class AuthController : ControllerBase
             return Unauthorized(new { message = "Invalid email or password" });
         }
 
-        var token = _jwtService.GenerateToken(user, user.UserType ?? "User");
+        var (token, _) = _jwtService.GenerateToken(user, user.UserType ?? "User");
         return new LoginResponse
         {
             Token = token,
@@ -98,7 +102,7 @@ public class AuthController : ControllerBase
         await _context.SaveChangesAsync();
 
         // Generate token and return response
-        var token = _jwtService.GenerateToken(user, "User");
+        var (token, _) = _jwtService.GenerateToken(user, "User");
         return new LoginResponse
         {
             Token = token,
@@ -142,7 +146,7 @@ public class AuthController : ControllerBase
         await _context.SaveChangesAsync();
 
         // Generate token and return response
-        var token = _jwtService.GenerateToken(pro, "Pro");
+        var (token, _) = _jwtService.GenerateToken(pro, "Pro");
         return new LoginResponse
         {
             Token = token,
@@ -206,7 +210,7 @@ public class AuthController : ControllerBase
             await _context.SaveChangesAsync();
 
             // Generate token for new admin user
-            var token = _jwtService.GenerateToken(user, "Admin");
+            var (token, _) = _jwtService.GenerateToken(user, "Admin");
             return new LoginResponse
             {
                 Token = token,
@@ -221,5 +225,23 @@ public class AuthController : ControllerBase
         {
             return BadRequest(new { message = "Error processing invitation", error = ex.Message });
         }
+    }
+
+    [HttpPost("logout")]
+    [Authorize]
+    public async Task<IActionResult> Logout()
+    {
+        var jti = User.FindFirstValue(JwtRegisteredClaimNames.Jti);
+        if (string.IsNullOrEmpty(jti))
+            return BadRequest(new { message = "Token has no jti claim." });
+
+        // Parse expiry from the token's exp claim so we clean up the blacklist automatically
+        var expClaim = User.FindFirstValue(JwtRegisteredClaimNames.Exp);
+        DateTime expiresAt = DateTime.UtcNow.AddDays(1);
+        if (long.TryParse(expClaim, out var expSeconds))
+            expiresAt = DateTimeOffset.FromUnixTimeSeconds(expSeconds).UtcDateTime;
+
+        await _blacklist.RevokeAsync(jti, expiresAt);
+        return Ok(new { message = "Logged out successfully." });
     }
 }

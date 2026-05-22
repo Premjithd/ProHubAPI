@@ -30,6 +30,7 @@ try
 
     Console.WriteLine("🔐 Adding JWT services...");
     builder.Services.AddScoped<IJwtService, JwtService>();
+    builder.Services.AddScoped<ITokenBlacklistService, TokenBlacklistService>();
     builder.Services.AddScoped<IVerificationService, VerificationService>();
     builder.Services.AddScoped<IEmailService, SmtpEmailService>();
 
@@ -102,6 +103,19 @@ try
                 ValidIssuer = builder.Configuration["Jwt:Issuer"],
                 ValidAudience = builder.Configuration["Jwt:Audience"],
                 IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]))
+            };
+            options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
+            {
+                OnTokenValidated = async context =>
+                {
+                    var blacklist = context.HttpContext.RequestServices
+                        .GetRequiredService<ITokenBlacklistService>();
+                    var jti = context.Principal?.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Jti)?.Value;
+                    if (!string.IsNullOrEmpty(jti) && await blacklist.IsRevokedAsync(jti))
+                    {
+                        context.Fail("Token has been revoked.");
+                    }
+                }
             };
         });
 

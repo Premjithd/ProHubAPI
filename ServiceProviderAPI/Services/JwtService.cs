@@ -8,7 +8,7 @@ namespace ServiceProviderAPI.Services;
 
 public interface IJwtService
 {
-    string GenerateToken(object user, string role);
+    (string Token, string Jti) GenerateToken(object user, string role);
 }
 
 public class JwtService : IJwtService
@@ -20,7 +20,7 @@ public class JwtService : IJwtService
         _configuration = configuration;
     }
 
-    public string GenerateToken(object user, string role)
+    public (string Token, string Jti) GenerateToken(object user, string role)
     {
         var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]));
         var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
@@ -78,8 +78,11 @@ public class JwtService : IJwtService
             // leave id/email empty
         }
 
+        var jti = Guid.NewGuid().ToString();
+
         var claims = new[]
         {
+            new Claim(JwtRegisteredClaimNames.Jti, jti),
             new Claim(ClaimTypes.NameIdentifier, id),
             new Claim(ClaimTypes.Email, email),
             new Claim(ClaimTypes.Name, displayName),
@@ -94,6 +97,6 @@ public class JwtService : IJwtService
             signingCredentials: credentials
         );
 
-        return new JwtSecurityTokenHandler().WriteToken(token);
+        return (new JwtSecurityTokenHandler().WriteToken(token), jti);
     }
 }

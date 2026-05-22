@@ -27,6 +27,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<JobInsurance> JobInsurances { get; set; }  // Phase 1E
     public DbSet<JobNotification> JobNotifications { get; set; }  // Phase 1B
     public DbSet<JobCompletion> JobCompletions { get; set; }  // Phase 5
+    public DbSet<RevokedToken> RevokedTokens { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -153,5 +154,9 @@ public class ApplicationDbContext : DbContext
             .WithMany()
             .HasForeignKey(jc => jc.JobId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<RevokedToken>()
+            .HasIndex(rt => rt.Jti)
+            .IsUnique();
     }
 }

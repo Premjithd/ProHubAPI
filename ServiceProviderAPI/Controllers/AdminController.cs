@@ -106,7 +106,7 @@ public class AdminController : ControllerBase
                 if (user == null)
                     return NotFound(new { message = "User not found" });
 
-                impersonationToken = _jwtService.GenerateToken(user, "User");
+                (impersonationToken, _) = _jwtService.GenerateToken(user, "User");
             }
             else
             {
@@ -114,7 +114,7 @@ public class AdminController : ControllerBase
                 if (pro == null)
                     return NotFound(new { message = "Professional not found" });
 
-                impersonationToken = _jwtService.GenerateToken(pro, "Pro");
+                (impersonationToken, _) = _jwtService.GenerateToken(pro, "Pro");
             }
 
             return Ok(new
