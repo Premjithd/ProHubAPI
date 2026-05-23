@@ -677,6 +677,12 @@ public class JobsController : ControllerBase
             if (bid.JobId != jobId)
                 return BadRequest("Bid does not belong to this job");
 
+            if (bid.ExpiresAt.HasValue && bid.ExpiresAt < DateTime.UtcNow)
+                return BadRequest(new { message = "This bid has expired and can no longer be accepted" });
+
+            if (bid.Status != "Pending")
+                return BadRequest(new { message = $"Bid cannot be accepted — current status is '{bid.Status}'" });
+
             // Update bid status
             bid.Status = "Accepted";
             _context.JobBids.Update(bid);

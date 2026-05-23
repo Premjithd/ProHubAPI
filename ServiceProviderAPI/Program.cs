@@ -76,6 +76,9 @@ try
     Console.WriteLine("🌱 Adding seed data service...");
     builder.Services.AddScoped<SeedDataService>();
 
+    // TODO: Add BidExpirationService (BackgroundService) to proactively mark overdue Pending bids
+    // as Expired on a periodic sweep. For now, expiration is enforced only at accept-time in AcceptBid.
+
     // Add HttpContextAccessor for accessing current HTTP context
     builder.Services.AddHttpContextAccessor();
 
