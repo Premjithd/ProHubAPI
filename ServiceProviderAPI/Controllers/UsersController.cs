@@ -53,6 +53,7 @@ public class UsersController : ControllerBase
     };
 
     [HttpPost]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<User>> CreateUser(User user)
     {
         user.PasswordHash = BC.HashPassword(user.PasswordHash);

@@ -60,6 +60,7 @@ public class ProsController : ControllerBase
     };
 
     [HttpPost]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<Pro>> CreatePro(Pro pro)
     {
         pro.PasswordHash = BC.HashPassword(pro.PasswordHash);
