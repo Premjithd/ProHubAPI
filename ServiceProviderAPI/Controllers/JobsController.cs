@@ -112,24 +112,34 @@ public class JobsController : ControllerBase
         }
     }
 
-    // GET: api/jobs/available?page=1&pageSize=20&categoryId=&search=
+    // GET: api/jobs/available?page=1&pageSize=20&categoryId=&search=&filterRadiusKm=25
     [Authorize]
     [HttpGet("available")]
-    public async Task<ActionResult<PagedResult<Job>>> GetAvailableJobs(
+    public async Task<IActionResult> GetAvailableJobs(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         [FromQuery] int? categoryId = null,
-        [FromQuery] string? search = null)
+        [FromQuery] string? search = null,
+        [FromQuery] int? filterRadiusKm = null)
     {
         try
         {
             page = Math.Max(1, page);
             pageSize = Math.Clamp(pageSize, 1, 100);
 
+            // Load the calling pro's location
+            var proIdStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            int.TryParse(proIdStr, out int proId);
+            var pro = proId > 0 ? await _context.Pros.FindAsync(proId) : null;
+
+            bool hasProLocation = pro?.Latitude != null && pro?.Longitude != null;
+            bool applyProximity = hasProLocation && filterRadiusKm.HasValue;
+            double radiusKm = filterRadiusKm.HasValue ? (double)filterRadiusKm.Value : 0;
+
+            // DB query — filtered by category/search, full set (no Skip/Take) so Haversine can run in memory
             var query = _context.Jobs
                 .Where(j => j.Status == "Open" && (j.AssignedProId == null || j.AssignedProId == 0))
                 .Include(j => j.User)
-                .Include(j => j.AssignedPro)
                 .Include(j => j.Category)
                 .AsQueryable();
 
@@ -141,21 +151,91 @@ public class JobsController : ControllerBase
                     j.Title.Contains(search) ||
                     (j.Description != null && j.Description.Contains(search)));
 
-            query = query.OrderByDescending(j => j.CreatedAt);
+            var allJobs = await query.ToListAsync();
 
-            var total = await query.CountAsync();
-            var items = await query
+            // Compute distance for every job (null when either side has no coordinates)
+            var withDistance = allJobs.Select(j =>
+            {
+                double? dist = null;
+                if (hasProLocation && j.Latitude.HasValue && j.Longitude.HasValue)
+                    dist = Math.Round(HaversineKm(pro!.Latitude!.Value, pro!.Longitude!.Value, j.Latitude.Value, j.Longitude.Value), 1);
+                return (Job: j, DistanceKm: dist);
+            }).ToList();
+
+            // Proximity filter: keep jobs within radius OR jobs with no coordinates (can't exclude them)
+            if (applyProximity)
+                withDistance = withDistance
+                    .Where(x => x.DistanceKm == null || x.DistanceKm <= radiusKm)
+                    .ToList();
+
+            // Sort: known distances first (ascending), then jobs without coordinates
+            withDistance = withDistance
+                .OrderBy(x => x.DistanceKm ?? double.MaxValue)
+                .ThenByDescending(x => x.Job.CreatedAt)
+                .ToList();
+
+            var total = withDistance.Count;
+            var paged = withDistance
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
-                .ToListAsync();
+                .Select(x => new
+                {
+                    x.Job.Id,
+                    x.Job.UserId,
+                    x.Job.Title,
+                    x.Job.CategoryId,
+                    Category = x.Job.Category == null ? null : new { x.Job.Category.Id, x.Job.Category.Name, x.Job.Category.Icon },
+                    x.Job.Description,
+                    x.Job.Location,
+                    x.Job.ServiceAddressCity,
+                    x.Job.ServiceAddressState,
+                    x.Job.ServiceAddressCountry,
+                    x.Job.ServiceAddressPIN,
+                    x.Job.Budget,
+                    x.Job.EstimatedBudget,
+                    x.Job.Timeline,
+                    x.Job.Status,
+                    x.Job.IsBid,
+                    x.Job.AssignedProId,
+                    x.Job.Latitude,
+                    x.Job.Longitude,
+                    x.Job.JobPhases,
+                    x.Job.Attachments,
+                    x.Job.CreatedAt,
+                    x.Job.UpdatedAt,
+                    User = x.Job.User == null ? null : new { x.Job.User.Id, x.Job.User.FirstName, x.Job.User.LastName, x.Job.User.Email },
+                    DistanceKm = x.DistanceKm
+                })
+                .ToList();
 
-            return Ok(new PagedResult<Job> { Items = items, Total = total, Page = page, PageSize = pageSize });
+            return Ok(new
+            {
+                items = paged,
+                total,
+                page,
+                pageSize,
+                proximityFilterApplied = applyProximity,
+                proLocationSet = hasProLocation,
+                radiusKm = applyProximity ? (double?)radiusKm : null
+            });
         }
         catch (Exception ex)
         {
             _logger.LogError($"Error retrieving available jobs: {ex.Message}");
             return StatusCode(500, new { message = "Error retrieving available jobs", error = ex.Message });
         }
+    }
+
+    // Haversine formula — returns distance in kilometres between two lat/lng points
+    private static double HaversineKm(double lat1, double lon1, double lat2, double lon2)
+    {
+        const double R = 6371.0;
+        var dLat = (lat2 - lat1) * Math.PI / 180.0;
+        var dLon = (lon2 - lon1) * Math.PI / 180.0;
+        var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2)
+              + Math.Cos(lat1 * Math.PI / 180.0) * Math.Cos(lat2 * Math.PI / 180.0)
+              * Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+        return R * 2.0 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1.0 - a));
     }
 
     // GET: api/admin/users/{userId}/jobs - Get jobs posted by a specific user
