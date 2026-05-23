@@ -28,6 +28,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<JobNotification> JobNotifications { get; set; }  // Phase 1B
     public DbSet<JobCompletion> JobCompletions { get; set; }  // Phase 5
     public DbSet<RevokedToken> RevokedTokens { get; set; }
+    public DbSet<Review> Reviews { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -158,5 +159,32 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<RevokedToken>()
             .HasIndex(rt => rt.Jti)
             .IsUnique();
+
+        modelBuilder.Entity<Review>()
+            .HasOne(r => r.Job)
+            .WithMany()
+            .HasForeignKey(r => r.JobId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Review>()
+            .HasOne(r => r.Reviewer)
+            .WithMany()
+            .HasForeignKey(r => r.ReviewerId)
+            .OnDelete(DeleteBehavior.NoAction);
+
+        modelBuilder.Entity<Review>()
+            .HasOne(r => r.Pro)
+            .WithMany()
+            .HasForeignKey(r => r.ProId)
+            .OnDelete(DeleteBehavior.NoAction);
+
+        modelBuilder.Entity<Review>()
+            .HasIndex(r => r.JobId)
+            .IsUnique()
+            .HasDatabaseName("IX_Reviews_JobId_Unique");
+
+        modelBuilder.Entity<Review>()
+            .HasIndex(r => r.ProId)
+            .HasDatabaseName("IX_Reviews_ProId");
     }
 }
