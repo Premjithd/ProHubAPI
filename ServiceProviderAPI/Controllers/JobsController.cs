@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using ServiceProviderAPI.Data;
+using ServiceProviderAPI.Hubs;
 using ServiceProviderAPI.Models;
 using ServiceProviderAPI.DTOs;
 using System.Security.Claims;
@@ -15,11 +17,13 @@ public class JobsController : ControllerBase
 {
     private readonly ApplicationDbContext _context;
     private readonly ILogger<JobsController> _logger;
+    private readonly IHubContext<NotificationHub> _hubContext;
 
-    public JobsController(ApplicationDbContext context, ILogger<JobsController> logger)
+    public JobsController(ApplicationDbContext context, ILogger<JobsController> logger, IHubContext<NotificationHub> hubContext)
     {
         _context = context;
         _logger = logger;
+        _hubContext = hubContext;
     }
 
     // GET: api/jobs/my-jobs
@@ -331,6 +335,11 @@ public class JobsController : ControllerBase
                     _context.JobNotifications.AddRange(notifications);
                     await _context.SaveChangesAsync();
                     _logger.LogInformation($"📢 Notified {matchingProIds.Count} pros about job {job.Id}");
+
+                    // Push real-time notification via SignalR
+                    var pushTasks = matchingProIds.Select(proId =>
+                        _hubContext.Clients.Group($"pro-{proId}").SendAsync("NewNotification"));
+                    await Task.WhenAll(pushTasks);
                 }
             }
 

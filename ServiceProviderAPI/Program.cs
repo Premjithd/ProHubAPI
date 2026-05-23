@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using ServiceProviderAPI.Data;
+using ServiceProviderAPI.Hubs;
 using ServiceProviderAPI.Services;
 using ServiceProviderAPI.Services.Abstractions;
 using ServiceProviderAPI.Services.Channels;
@@ -79,6 +80,9 @@ try
     // Add HttpClient for external API calls (e.g., Nominatim address service)
     builder.Services.AddHttpClient();
 
+    Console.WriteLine("📡 Adding SignalR...");
+    builder.Services.AddSignalR();
+
     Console.WriteLine("🎮 Adding controllers...");
     // Add controllers with JSON serializer options to handle circular references
     builder.Services.AddControllers()
@@ -106,6 +110,17 @@ try
             };
             options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
             {
+                // Allow SignalR WebSocket connections to pass JWT via query string
+                OnMessageReceived = context =>
+                {
+                    var accessToken = context.Request.Query["access_token"];
+                    var path = context.HttpContext.Request.Path;
+                    if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
+                    {
+                        context.Token = accessToken;
+                    }
+                    return Task.CompletedTask;
+                },
                 OnTokenValidated = async context =>
                 {
                     var blacklist = context.HttpContext.RequestServices
@@ -128,10 +143,10 @@ try
     {
         options.AddPolicy("AllowAngular", policy =>
         {
-            //policy.WithOrigins("http://localhost:4200")
-            policy.AllowAnyOrigin()
+            policy.WithOrigins("http://localhost:4200")
                   .AllowAnyHeader()
-                  .AllowAnyMethod();
+                  .AllowAnyMethod()
+                  .AllowCredentials();
         });
     });
 
@@ -209,6 +224,7 @@ try
     app.UseAuthorization();
 
     app.MapControllers();
+    app.MapHub<NotificationHub>("/hubs/notifications");
 
     Console.WriteLine("🚀 Starting web host...");
     app.Run();
