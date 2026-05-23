@@ -749,6 +749,42 @@ public class JobsController : ControllerBase
         }
     }
 
+    // POST: api/jobs/{jobId}/bids/{bidId}/withdraw
+    [Authorize]
+    [HttpPost("{jobId}/bids/{bidId}/withdraw")]
+    public async Task<IActionResult> WithdrawBid(int jobId, int bidId)
+    {
+        try
+        {
+            var proIdStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            int.TryParse(proIdStr, out int proId);
+
+            var bid = await _context.JobBids.FindAsync(bidId);
+            if (bid == null)
+                return NotFound("Bid not found");
+
+            if (bid.JobId != jobId)
+                return BadRequest("Bid does not belong to this job");
+
+            if (bid.ProId != proId)
+                return Forbid("You can only withdraw your own bids");
+
+            if (bid.Status != "Pending")
+                return BadRequest($"Cannot withdraw a bid with status '{bid.Status}'. Only pending bids can be withdrawn.");
+
+            bid.Status = "Withdrawn";
+            _context.JobBids.Update(bid);
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = "Bid withdrawn successfully", bidId = bid.Id, status = bid.Status });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error withdrawing bid: {ex.Message}");
+            return StatusCode(500, new { message = "Error withdrawing bid", error = ex.Message });
+        }
+    }
+
     // GET: api/jobs/category/{categoryId}
     [AllowAnonymous]
     [HttpGet("category/{categoryId}")]
