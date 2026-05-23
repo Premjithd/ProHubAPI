@@ -13,8 +13,6 @@ public class Service
     [Required]
     public string Description { get; set; }
     
-    [Required]
-    [Range(0, double.MaxValue)]
     public decimal Price { get; set; }
     
     public int ProId { get; set; }

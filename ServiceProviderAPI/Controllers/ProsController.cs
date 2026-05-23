@@ -27,6 +27,41 @@ public class ProsController : ControllerBase
         return Ok(pros.Select(p => SafePro(p)));
     }
 
+    [HttpGet("browse")]
+    [AllowAnonymous]
+    public async Task<ActionResult<IEnumerable<object>>> BrowsePros(
+        [FromQuery] string? search = null,
+        [FromQuery] int? categoryId = null)
+    {
+        var query = _context.Pros.Include(p => p.Services).AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.ToLower();
+            query = query.Where(p =>
+                p.ProName.ToLower().Contains(term) ||
+                p.BusinessName.ToLower().Contains(term) ||
+                (p.City != null && p.City.ToLower().Contains(term)) ||
+                p.Services.Any(s => s.Name.ToLower().Contains(term)));
+        }
+
+        if (categoryId.HasValue)
+        {
+            query = query.Where(p => p.Services.Any(s => s.ServiceCategoryId == categoryId.Value));
+        }
+
+        var pros = await query.ToListAsync();
+
+        return Ok(pros.Select(p => new
+        {
+            p.Id, p.ProName, p.BusinessName,
+            p.City, p.State, p.Country,
+            p.Latitude, p.Longitude, p.ServiceRadiusKm,
+            p.IsEmailVerified,
+            Services = p.Services?.Select(s => new { s.Id, s.Name, s.Price })
+        }));
+    }
+
     [HttpGet("{id}")]
     [Authorize]
     public async Task<ActionResult<object>> GetPro(int id)

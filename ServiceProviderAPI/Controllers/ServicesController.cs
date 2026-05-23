@@ -108,7 +108,6 @@ public class ServicesController : ControllerBase
 
         existingService.Name = service.Name;
         existingService.Description = service.Description;
-        existingService.Price = service.Price;
         existingService.ServiceCategoryId = service.ServiceCategoryId;
         existingService.UpdatedAt = DateTime.UtcNow;
 
