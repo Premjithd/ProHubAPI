@@ -18,14 +18,16 @@ public class AdminController : ControllerBase
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IEmailService _emailService;
     private readonly ILogger<AdminController> _logger;
+    private readonly IHttpClientFactory _httpClientFactory;
 
-    public AdminController(ApplicationDbContext context, IJwtService jwtService, IHttpContextAccessor httpContextAccessor, IEmailService emailService, ILogger<AdminController> logger)
+    public AdminController(ApplicationDbContext context, IJwtService jwtService, IHttpContextAccessor httpContextAccessor, IEmailService emailService, ILogger<AdminController> logger, IHttpClientFactory httpClientFactory)
     {
         _context = context;
         _jwtService = jwtService;
         _httpContextAccessor = httpContextAccessor;
         _emailService = emailService;
         _logger = logger;
+        _httpClientFactory = httpClientFactory;
     }
 
     // Search for users by email or name
@@ -299,7 +301,92 @@ public class AdminController : ControllerBase
             return BadRequest(new { message = "Error resending invitation", error = ex.Message });
         }
     }
+
+    [HttpPatch("pros/{id}/service-radius")]
+    public async Task<ActionResult> UpdateProServiceRadius(int id, [FromBody] UpdateServiceRadiusRequest request)
+    {
+        if (request.ServiceRadiusKm < 1 || request.ServiceRadiusKm > 500)
+            return BadRequest(new { message = "Service radius must be between 1 and 500 km." });
+
+        var pro = await _context.Pros.FindAsync(id);
+        if (pro == null)
+            return NotFound(new { message = "Professional not found." });
+
+        pro.ServiceRadiusKm = request.ServiceRadiusKm;
+        pro.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        return Ok(new { message = "Service radius updated.", serviceRadiusKm = pro.ServiceRadiusKm });
+    }
+
+    [HttpPost("pros/geocode-backfill")]
+    public async Task<ActionResult> GeocodeBackfillPros()
+    {
+        var pros = await _context.Pros
+            .Where(p => p.Latitude == null && p.Street1 != null && p.City != null)
+            .ToListAsync();
+
+        if (!pros.Any())
+            return Ok(new { message = "No pros need geocoding.", updated = 0, failed = 0, total = 0 });
+
+        var httpClient = _httpClientFactory.CreateClient();
+        httpClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "ProHub-AddressService/1.0");
+
+        int updated = 0, failed = 0;
+
+        foreach (var pro in pros)
+        {
+            try
+            {
+                var parts = new[] { pro.HouseNameNumber, pro.Street1, pro.City, pro.State, pro.Country }
+                    .Where(s => !string.IsNullOrWhiteSpace(s));
+                var query = string.Join(", ", parts);
+
+                var url = $"https://nominatim.openstreetmap.org/search?q={Uri.EscapeDataString(query)}&format=json&limit=1";
+                var json = await httpClient.GetStringAsync(url);
+                var results = System.Text.Json.JsonSerializer.Deserialize<NominatimGeoResult[]>(json);
+
+                if (results != null && results.Length > 0 &&
+                    double.TryParse(results[0].Lat, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var lat) &&
+                    double.TryParse(results[0].Lon, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var lon))
+                {
+                    pro.Latitude = lat;
+                    pro.Longitude = lon;
+                    pro.UpdatedAt = DateTime.UtcNow;
+                    updated++;
+                }
+                else
+                {
+                    _logger.LogWarning("Geocoding returned no results for pro {Id} ({Name})", pro.Id, pro.ProName);
+                    failed++;
+                }
+
+                // Nominatim rate limit: 1 request/second
+                await Task.Delay(1100);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Geocoding failed for pro {Id} ({Name}): {Error}", pro.Id, pro.ProName, ex.Message);
+                failed++;
+            }
+        }
+
+        await _context.SaveChangesAsync();
+
+        return Ok(new
+        {
+            message = $"Geocoding complete. {updated} updated, {failed} could not be geocoded.",
+            updated,
+            failed,
+            total = pros.Count
+        });
+    }
 }
+
+file record NominatimGeoResult(
+    [property: System.Text.Json.Serialization.JsonPropertyName("lat")] string Lat,
+    [property: System.Text.Json.Serialization.JsonPropertyName("lon")] string Lon
+);
 
 public class ImpersonateRequest
 {
@@ -311,4 +398,10 @@ public class InviteAdminRequest
 {
     [JsonPropertyName("email")]
     public string? Email { get; set; }
+}
+
+public class UpdateServiceRadiusRequest
+{
+    [JsonPropertyName("serviceRadiusKm")]
+    public int ServiceRadiusKm { get; set; }
 }

@@ -138,6 +138,7 @@ public class ProsController : ControllerBase
         existingPro.State = pro.State;
         existingPro.Country = pro.Country;
         existingPro.ZipPostalCode = pro.ZipPostalCode;
+        existingPro.ServiceRadiusKm = pro.ServiceRadiusKm;
         existingPro.UpdatedAt = DateTime.UtcNow;
 
         try
