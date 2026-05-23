@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using ServiceProviderAPI.Data;
 using ServiceProviderAPI.Models;
@@ -26,6 +27,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("pro/login")]
+    [EnableRateLimiting("auth-login")]
     public async Task<ActionResult<LoginResponse>> LoginPro(LoginRequest request)
     {
         var pro = await _context.Pros
@@ -48,6 +50,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("user/login")]
+    [EnableRateLimiting("auth-login")]
     public async Task<ActionResult<LoginResponse>> LoginUser(LoginRequest request)
     {
         var user = await _context.Users
@@ -71,6 +74,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("user/register")]
+    [EnableRateLimiting("auth-register")]
     public async Task<ActionResult<LoginResponse>> RegisterUser(UserRegistrationRequest request)
     {
         // Check if email already exists
@@ -115,6 +119,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("pro/register")]
+    [EnableRateLimiting("auth-register")]
     public async Task<ActionResult<LoginResponse>> RegisterPro(ProRegistrationRequest request)
     {
         // Check if email already exists
