@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ServiceProviderAPI.Data;
+using ServiceProviderAPI.DTOs;
 using ServiceProviderAPI.Models;
 
 namespace ServiceProviderAPI.Controllers;
@@ -91,10 +92,16 @@ public class MessagesController : ControllerBase
         }
     }
 
-    // GET: api/messages/conversations?userId=1&userType=User|Pro
+    // GET: api/messages/conversations?userId=1&userType=User|Pro&page=1&pageSize=20
     [HttpGet("conversations")]
-    public async Task<IActionResult> GetConversationPartners([FromQuery] int? userId, [FromQuery] string userType)
+    public async Task<IActionResult> GetConversationPartners(
+        [FromQuery] int? userId,
+        [FromQuery] string userType,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
     {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 100);
         try
         {
             // If userId is not provided, get it from claims
@@ -123,16 +130,22 @@ public class MessagesController : ControllerBase
 
             // Apply distinct in memory to eliminate duplicate partner combinations
             messageIndexes = messageIndexes
-                .DistinctBy(mi => new 
-                { 
+                .DistinctBy(mi => new
+                {
                     PartnerId = (mi.UserId1 == actualUserId && mi.UserType1 == userType) ? mi.UserId2 : mi.UserId1,
                     PartnerType = (mi.UserId1 == actualUserId && mi.UserType1 == userType) ? mi.UserType2 : mi.UserType1
                 })
                 .ToList();
 
+            var total = messageIndexes.Count;
+            var pagedIndexes = messageIndexes
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToList();
+
             var conversationPartners = new List<object>();
 
-            foreach (var messageIndex in messageIndexes)
+            foreach (var messageIndex in pagedIndexes)
             {
                 // Determine the partner ID and type by checking which side the current user is on
                 int partnerId;
@@ -215,7 +228,7 @@ public class MessagesController : ControllerBase
                 });
             }
 
-            return Ok(conversationPartners);
+            return Ok(new PagedResult<object> { Items = conversationPartners, Total = total, Page = page, PageSize = pageSize });
         }
         catch (Exception ex)
         {

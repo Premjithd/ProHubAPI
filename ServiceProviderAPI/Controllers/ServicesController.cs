@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ServiceProviderAPI.Data;
+using ServiceProviderAPI.DTOs;
 using ServiceProviderAPI.Models;
 
 namespace ServiceProviderAPI.Controllers;
@@ -17,13 +18,39 @@ public class ServicesController : ControllerBase
         _context = context;
     }
 
+    // GET: api/services?page=1&pageSize=20&categoryId=&search=
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<Service>>> GetServices()
+    public async Task<ActionResult<PagedResult<Service>>> GetServices(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] int? categoryId = null,
+        [FromQuery] string? search = null)
     {
-        return await _context.Services
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+
+        var query = _context.Services
             .Include(s => s.Pro)
             .Include(s => s.ServiceCategory)
+            .AsQueryable();
+
+        if (categoryId.HasValue)
+            query = query.Where(s => s.ServiceCategoryId == categoryId.Value);
+
+        if (!string.IsNullOrEmpty(search))
+            query = query.Where(s =>
+                s.Name.Contains(search) ||
+                (s.Description != null && s.Description.Contains(search)));
+
+        query = query.OrderBy(s => s.Name);
+
+        var total = await query.CountAsync();
+        var items = await query
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .ToListAsync();
+
+        return Ok(new PagedResult<Service> { Items = items, Total = total, Page = page, PageSize = pageSize });
     }
 
     [HttpGet("{id}")]

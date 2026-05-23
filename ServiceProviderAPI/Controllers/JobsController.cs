@@ -3,9 +3,9 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using ServiceProviderAPI.Data;
+using ServiceProviderAPI.DTOs;
 using ServiceProviderAPI.Hubs;
 using ServiceProviderAPI.Models;
-using ServiceProviderAPI.DTOs;
 using System.Security.Claims;
 using System.Linq;
 
@@ -26,34 +26,49 @@ public class JobsController : ControllerBase
         _hubContext = hubContext;
     }
 
-    // GET: api/jobs/my-jobs
+    // GET: api/jobs/my-jobs?page=1&pageSize=20&status=Open
     [Authorize]
     [HttpGet("my-jobs")]
-    public async Task<ActionResult<IEnumerable<Job>>> GetMyJobs()
+    public async Task<ActionResult<PagedResult<Job>>> GetMyJobs(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? status = null)
     {
         try
         {
             var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             _logger.LogInformation($"User claim found: {userIdClaim}");
-            
+
             var userId = int.Parse(userIdClaim ?? "0");
-            
             if (userId == 0)
             {
                 _logger.LogWarning("User ID not found in claims");
                 return Unauthorized("User not found");
             }
 
-            var jobs = await _context.Jobs
+            page = Math.Max(1, page);
+            pageSize = Math.Clamp(pageSize, 1, 100);
+
+            var query = _context.Jobs
                 .Where(j => j.UserId == userId)
                 .Include(j => j.User)
                 .Include(j => j.AssignedPro)
                 .Include(j => j.Category)
-                .OrderByDescending(j => j.CreatedAt)
+                .AsQueryable();
+
+            if (!string.IsNullOrEmpty(status))
+                query = query.Where(j => j.Status == status);
+
+            query = query.OrderByDescending(j => j.CreatedAt);
+
+            var total = await query.CountAsync();
+            var items = await query
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
                 .ToListAsync();
 
-            _logger.LogInformation($"Retrieved {jobs.Count} jobs for user {userId}");
-            return Ok(jobs);
+            _logger.LogInformation($"Retrieved {items.Count}/{total} jobs for user {userId} (page {page})");
+            return Ok(new PagedResult<Job> { Items = items, Total = total, Page = page, PageSize = pageSize });
         }
         catch (Exception ex)
         {
@@ -97,22 +112,44 @@ public class JobsController : ControllerBase
         }
     }
 
-    // GET: api/jobs/available
+    // GET: api/jobs/available?page=1&pageSize=20&categoryId=&search=
     [Authorize]
     [HttpGet("available")]
-    public async Task<ActionResult<IEnumerable<Job>>> GetAvailableJobs()
+    public async Task<ActionResult<PagedResult<Job>>> GetAvailableJobs(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] int? categoryId = null,
+        [FromQuery] string? search = null)
     {
         try
         {
-            var jobs = await _context.Jobs
+            page = Math.Max(1, page);
+            pageSize = Math.Clamp(pageSize, 1, 100);
+
+            var query = _context.Jobs
                 .Where(j => j.Status == "Open" && (j.AssignedProId == null || j.AssignedProId == 0))
                 .Include(j => j.User)
                 .Include(j => j.AssignedPro)
                 .Include(j => j.Category)
-                .OrderByDescending(j => j.CreatedAt)
+                .AsQueryable();
+
+            if (categoryId.HasValue)
+                query = query.Where(j => j.CategoryId == categoryId.Value);
+
+            if (!string.IsNullOrEmpty(search))
+                query = query.Where(j =>
+                    j.Title.Contains(search) ||
+                    (j.Description != null && j.Description.Contains(search)));
+
+            query = query.OrderByDescending(j => j.CreatedAt);
+
+            var total = await query.CountAsync();
+            var items = await query
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
                 .ToListAsync();
 
-            return Ok(jobs);
+            return Ok(new PagedResult<Job> { Items = items, Total = total, Page = page, PageSize = pageSize });
         }
         catch (Exception ex)
         {
