@@ -749,6 +749,49 @@ public class JobsController : ControllerBase
         }
     }
 
+    // POST: api/jobs/{id}/cancel
+    [Authorize]
+    [HttpPost("{id}/cancel")]
+    public async Task<IActionResult> CancelJob(int id, [FromBody] CancelJobRequest? request)
+    {
+        try
+        {
+            var userIdStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            int.TryParse(userIdStr, out int userId);
+
+            var job = await _context.Jobs.FindAsync(id);
+            if (job == null)
+                return NotFound("Job not found");
+
+            if (job.UserId != userId)
+                return Forbid("You can only cancel your own jobs");
+
+            var nonCancellableStatuses = new[] { "Completed", "Cancelled", "In Progress" };
+            if (nonCancellableStatuses.Contains(job.Status))
+                return BadRequest($"Cannot cancel a job with status '{job.Status}'.");
+
+            job.Status = "Cancelled";
+            job.UpdatedAt = DateTime.UtcNow;
+            _context.Jobs.Update(job);
+
+            // Mark all pending bids as withdrawn
+            var pendingBids = await _context.JobBids
+                .Where(b => b.JobId == id && b.Status == "Pending")
+                .ToListAsync();
+            foreach (var bid in pendingBids)
+                bid.Status = "Withdrawn";
+
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = "Job cancelled successfully", jobId = id, status = "Cancelled" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error cancelling job: {ex.Message}");
+            return StatusCode(500, new { message = "Error cancelling job", error = ex.Message });
+        }
+    }
+
     // POST: api/jobs/{jobId}/bids/{bidId}/withdraw
     [Authorize]
     [HttpPost("{jobId}/bids/{bidId}/withdraw")]

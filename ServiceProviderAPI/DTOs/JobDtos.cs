@@ -107,6 +107,12 @@ public class UpdateJobRequest
     public string? Attachments { get; set; }
 }
 
+public class CancelJobRequest
+{
+    [StringLength(500)]
+    public string? Reason { get; set; }
+}
+
 public class JobDto
 {
     public int Id { get; set; }

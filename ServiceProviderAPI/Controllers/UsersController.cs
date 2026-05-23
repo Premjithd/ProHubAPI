@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -19,23 +20,37 @@ public class UsersController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<User>>> GetUsers()
+    [Authorize(Roles = "Admin")]
+    public async Task<ActionResult<IEnumerable<object>>> GetUsers()
     {
-        return await _context.Users.ToListAsync();
+        var users = await _context.Users.ToListAsync();
+        return Ok(users.Select(u => SafeUser(u)));
     }
 
     [HttpGet("{id}")]
-    public async Task<ActionResult<User>> GetUser(int id)
+    [Authorize]
+    public async Task<ActionResult<object>> GetUser(int id)
     {
+        var callerIdStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        int.TryParse(callerIdStr, out int callerId);
+        bool isAdmin = User.IsInRole("Admin");
+
+        if (!isAdmin && callerId != id)
+            return Forbid();
+
         var user = await _context.Users.FindAsync(id);
+        if (user == null) return NotFound();
 
-        if (user == null)
-        {
-            return NotFound();
-        }
-
-        return user;
+        return Ok(SafeUser(user));
     }
+
+    private static object SafeUser(User u) => new
+    {
+        u.Id, u.FirstName, u.LastName, u.Email, u.PhoneNumber,
+        u.HouseNameNumber, u.Street1, u.Street2, u.City, u.State,
+        u.Country, u.ZipPostalCode, u.CreatedAt, u.UpdatedAt,
+        u.IsEmailVerified, u.IsPhoneVerified
+    };
 
     [HttpPost]
     public async Task<ActionResult<User>> CreateUser(User user)

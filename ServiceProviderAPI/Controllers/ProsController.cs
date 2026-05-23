@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -19,27 +20,44 @@ public class ProsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<Pro>>> GetPros()
+    [Authorize(Roles = "Admin")]
+    public async Task<ActionResult<IEnumerable<object>>> GetPros()
     {
-        return await _context.Pros
-            .Include(p => p.Services)
-            .ToListAsync();
+        var pros = await _context.Pros.Include(p => p.Services).ToListAsync();
+        return Ok(pros.Select(p => SafePro(p)));
     }
 
     [HttpGet("{id}")]
-    public async Task<ActionResult<Pro>> GetPro(int id)
+    [Authorize]
+    public async Task<ActionResult<object>> GetPro(int id)
     {
+        var callerIdStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        int.TryParse(callerIdStr, out int callerId);
+        bool isAdmin = User.IsInRole("Admin");
+        bool isPro = User.IsInRole("Pro");
+
+        // Pros can only view their own full profile; users and admins can view any pro's public profile
+        if (isPro && !isAdmin && callerId != id)
+            return Forbid();
+
         var pro = await _context.Pros
             .Include(p => p.Services)
             .FirstOrDefaultAsync(p => p.Id == id);
 
-        if (pro == null)
-        {
-            return NotFound();
-        }
+        if (pro == null) return NotFound();
 
-        return pro;
+        return Ok(SafePro(pro));
     }
+
+    private static object SafePro(Pro p) => new
+    {
+        p.Id, p.ProName, p.BusinessName, p.Email, p.PhoneNumber,
+        p.HouseNameNumber, p.Street1, p.Street2, p.City, p.State,
+        p.Country, p.ZipPostalCode, p.ServiceRadiusKm,
+        p.Latitude, p.Longitude, p.CreatedAt, p.UpdatedAt,
+        p.IsEmailVerified, p.IsPhoneVerified,
+        Services = p.Services?.Select(s => new { s.Id, s.Name, s.Description, s.Price })
+    };
 
     [HttpPost]
     public async Task<ActionResult<Pro>> CreatePro(Pro pro)
