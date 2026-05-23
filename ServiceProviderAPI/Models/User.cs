@@ -46,7 +46,10 @@ public class User
     
     [StringLength(20)]
     public string? ZipPostalCode { get; set; }
-    
+
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
+
     public ICollection<AdminUser>? AdminUsers { get; set; }
     public bool IsEmailVerified { get; set; }
     public bool IsPhoneVerified { get; set; }

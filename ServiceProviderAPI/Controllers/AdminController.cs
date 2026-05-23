@@ -319,11 +319,66 @@ public class AdminController : ControllerBase
         return Ok(new { message = "Service radius updated.", serviceRadiusKm = pro.ServiceRadiusKm });
     }
 
+    [HttpPost("users/geocode-backfill")]
+    public async Task<ActionResult> GeocodeBackfillUsers()
+    {
+        var users = await _context.Users
+            .Where(u => u.Latitude == null && u.City != null && u.City != "")
+            .ToListAsync();
+
+        if (!users.Any())
+            return Ok(new { message = "No users need geocoding.", updated = 0, failed = 0, total = 0 });
+
+        var httpClient = _httpClientFactory.CreateClient();
+        httpClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "ProHub-AddressService/1.0");
+
+        int updated = 0, failed = 0;
+
+        foreach (var user in users)
+        {
+            try
+            {
+                var coords = await TryGeocodeAsync(httpClient,
+                    user.HouseNameNumber, user.Street1, user.City, user.State, user.Country);
+
+                if (coords.HasValue)
+                {
+                    user.Latitude = coords.Value.Lat;
+                    user.Longitude = coords.Value.Lon;
+                    user.UpdatedAt = DateTime.UtcNow;
+                    updated++;
+                }
+                else
+                {
+                    _logger.LogWarning("Geocoding returned no results for user {Id} ({Email})", user.Id, user.Email);
+                    failed++;
+                }
+
+                await Task.Delay(1100);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Geocoding failed for user {Id} ({Email}): {Error}", user.Id, user.Email, ex.Message);
+                failed++;
+            }
+        }
+
+        await _context.SaveChangesAsync();
+
+        return Ok(new
+        {
+            message = $"Geocoding complete. {updated} updated, {failed} could not be geocoded.",
+            updated,
+            failed,
+            total = users.Count
+        });
+    }
+
     [HttpPost("pros/geocode-backfill")]
     public async Task<ActionResult> GeocodeBackfillPros()
     {
         var pros = await _context.Pros
-            .Where(p => p.Latitude == null && p.Street1 != null && p.City != null)
+            .Where(p => p.Latitude == null && p.City != null && p.City != "")
             .ToListAsync();
 
         if (!pros.Any())
@@ -338,20 +393,13 @@ public class AdminController : ControllerBase
         {
             try
             {
-                var parts = new[] { pro.HouseNameNumber, pro.Street1, pro.City, pro.State, pro.Country }
-                    .Where(s => !string.IsNullOrWhiteSpace(s));
-                var query = string.Join(", ", parts);
+                var coords = await TryGeocodeAsync(httpClient,
+                    pro.HouseNameNumber, pro.Street1, pro.City, pro.State, pro.Country);
 
-                var url = $"https://nominatim.openstreetmap.org/search?q={Uri.EscapeDataString(query)}&format=json&limit=1";
-                var json = await httpClient.GetStringAsync(url);
-                var results = System.Text.Json.JsonSerializer.Deserialize<NominatimGeoResult[]>(json);
-
-                if (results != null && results.Length > 0 &&
-                    double.TryParse(results[0].Lat, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var lat) &&
-                    double.TryParse(results[0].Lon, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var lon))
+                if (coords.HasValue)
                 {
-                    pro.Latitude = lat;
-                    pro.Longitude = lon;
+                    pro.Latitude = coords.Value.Lat;
+                    pro.Longitude = coords.Value.Lon;
                     pro.UpdatedAt = DateTime.UtcNow;
                     updated++;
                 }
@@ -361,7 +409,6 @@ public class AdminController : ControllerBase
                     failed++;
                 }
 
-                // Nominatim rate limit: 1 request/second
                 await Task.Delay(1100);
             }
             catch (Exception ex)
@@ -380,6 +427,46 @@ public class AdminController : ControllerBase
             failed,
             total = pros.Count
         });
+    }
+
+    // Tries progressively simpler queries so fake/generic street numbers don't block city-level geocoding
+    private async Task<(double Lat, double Lon)?> TryGeocodeAsync(
+        HttpClient httpClient,
+        string? houseNumber, string? street, string? city, string? state, string? country)
+    {
+        var candidates = new[]
+        {
+            // Full address
+            Parts(houseNumber, street, city, state, country),
+            // Without house number
+            Parts(street, city, state, country),
+            // City + state + country only
+            Parts(city, state, country),
+        };
+
+        foreach (var query in candidates.Where(q => !string.IsNullOrWhiteSpace(q)))
+        {
+            var url = $"https://nominatim.openstreetmap.org/search?q={Uri.EscapeDataString(query!)}&format=json&limit=1";
+            var json = await httpClient.GetStringAsync(url);
+            var results = System.Text.Json.JsonSerializer.Deserialize<NominatimGeoResult[]>(json);
+
+            if (results != null && results.Length > 0 &&
+                double.TryParse(results[0].Lat, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var lat) &&
+                double.TryParse(results[0].Lon, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var lon))
+            {
+                return (lat, lon);
+            }
+
+            await Task.Delay(1100);
+        }
+
+        return null;
+    }
+
+    private static string? Parts(params string?[] values)
+    {
+        var joined = string.Join(", ", values.Where(v => !string.IsNullOrWhiteSpace(v)));
+        return string.IsNullOrWhiteSpace(joined) ? null : joined;
     }
 }
 

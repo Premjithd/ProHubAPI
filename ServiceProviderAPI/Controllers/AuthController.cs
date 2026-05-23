@@ -98,6 +98,8 @@ public class AuthController : ControllerBase
             State = request.State,
             Country = request.Country,
             ZipPostalCode = request.ZipPostalCode,
+            Latitude = request.Latitude,
+            Longitude = request.Longitude,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };

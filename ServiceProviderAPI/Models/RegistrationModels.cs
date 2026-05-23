@@ -50,6 +50,9 @@ public class UserRegistrationRequest
     [Required]
     [StringLength(20)]
     public string ZipPostalCode { get; set; }
+
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
 }
 
 public class ProRegistrationRequest
