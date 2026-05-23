@@ -416,26 +416,125 @@ public class MessagesController : ControllerBase
     {
         try
         {
-            _logger.LogInformation($"Getting messages for job {jobId}");
+            var callerIdStr = _httpContextAccessor.HttpContext?.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (!int.TryParse(callerIdStr, out int callerId))
+                return Unauthorized(new { message = "Unable to determine caller" });
 
-            // Verify job exists
             var job = await _context.Jobs.FindAsync(jobId);
             if (job == null)
-            {
-                _logger.LogWarning($"Job {jobId} not found");
                 return NotFound(new { message = "Job not found" });
-            }
 
-            // For now, return empty array - messages will be populated once JobId is properly tracked
-            // This prevents 500 errors while the feature is being implemented
-            var emptyMessages = new object[0];
-            return Ok(emptyMessages);
+            // Determine the two parties and verify the caller is one of them
+            bool callerIsUser = job.UserId == callerId;
+            bool callerIsPro  = job.AssignedProId.HasValue && job.AssignedProId == callerId;
+
+            if (!callerIsUser && !callerIsPro)
+                return Forbid();
+
+            int userId  = job.UserId;
+            int? proId  = job.AssignedProId;
+
+            if (!proId.HasValue)
+                return Ok(new object[0]); // No assigned pro yet — no conversation exists
+
+            // Look up the MessageIndex between the consumer and the assigned pro
+            var messageIndex = await _context.MessageIndexes
+                .FirstOrDefaultAsync(mi =>
+                    (mi.UserId1 == userId && mi.UserType1 == "User" && mi.UserId2 == proId && mi.UserType2 == "Pro") ||
+                    (mi.UserId1 == proId  && mi.UserType1 == "Pro"  && mi.UserId2 == userId && mi.UserType2 == "User"));
+
+            if (messageIndex == null)
+                return Ok(new object[0]);
+
+            var messages = await _context.Messages
+                .Where(m => m.MessageIndexId == messageIndex.Id)
+                .OrderBy(m => m.SentAt)
+                .Select(m => new { m.Id, m.SenderId, m.RecipientId, m.SenderType, m.Content, m.SentAt, m.IsRead, m.ReadAt })
+                .ToListAsync();
+
+            return Ok(messages);
         }
         catch (Exception ex)
         {
-            _logger.LogError($"Error getting messages for job {jobId}: {ex.Message}\n{ex.StackTrace}");
-            // Return empty array instead of error to prevent blocking the UI
-            return Ok(new object[0]);
+            _logger.LogError($"Error getting messages for job {jobId}: {ex.Message}");
+            return StatusCode(500, new { message = "Error retrieving job messages", error = ex.Message });
+        }
+    }
+
+    // POST: api/messages/job/{jobId}
+    [HttpPost("job/{jobId}")]
+    public async Task<IActionResult> SendMessageForJob(int jobId, [FromBody] SendJobMessageRequest request)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(request?.Content))
+                return BadRequest(new { message = "Message content is required" });
+
+            var callerIdStr = _httpContextAccessor.HttpContext?.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (!int.TryParse(callerIdStr, out int callerId))
+                return Unauthorized(new { message = "Unable to determine caller" });
+
+            var job = await _context.Jobs.FindAsync(jobId);
+            if (job == null)
+                return NotFound(new { message = "Job not found" });
+
+            // Determine caller role and the recipient
+            int recipientId;
+            string senderType;
+            string recipientType;
+
+            if (job.UserId == callerId)
+            {
+                // Consumer sending to the assigned pro (or a specific bid pro via recipientId)
+                senderType = "User";
+                recipientType = "Pro";
+                recipientId = request.RecipientId > 0
+                    ? request.RecipientId
+                    : (job.AssignedProId ?? 0);
+
+                if (recipientId == 0)
+                    return BadRequest(new { message = "No assigned professional found. Provide recipientId." });
+            }
+            else if (job.AssignedProId.HasValue && job.AssignedProId == callerId)
+            {
+                // Assigned pro sending to the consumer
+                senderType = "Pro";
+                recipientType = "User";
+                recipientId = job.UserId;
+            }
+            else
+            {
+                return Forbid();
+            }
+
+            var messageIndex = await GetOrCreateMessageIndex(callerId, senderType, recipientId, recipientType);
+
+            var message = new Message
+            {
+                SenderId    = callerId,
+                RecipientId = recipientId,
+                SenderType  = senderType,
+                Content     = request.Content,
+                SentAt      = DateTime.UtcNow,
+                IsRead      = false,
+                MessageIndexId = messageIndex.Id
+            };
+
+            _context.Messages.Add(message);
+            messageIndex.LastMessageAt = DateTime.UtcNow;
+            _context.MessageIndexes.Update(messageIndex);
+            await _context.SaveChangesAsync();
+
+            return CreatedAtAction(nameof(GetMessagesByJob), new { jobId }, new
+            {
+                message.Id, message.SenderId, message.RecipientId, message.SenderType,
+                message.Content, message.SentAt, message.IsRead
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error sending message for job {jobId}: {ex.Message}");
+            return StatusCode(500, new { message = "Error sending message", error = ex.Message });
         }
     }
 
@@ -485,5 +584,11 @@ public class SendDirectMessageRequest
     public int RecipientId { get; set; }
     public string? SenderType { get; set; }
     public string? Content { get; set; }
+}
+
+public class SendJobMessageRequest
+{
+    public string? Content { get; set; }
+    public int RecipientId { get; set; } // optional override; 0 means infer from job
 }
 
