@@ -28,6 +28,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<JobNotification> JobNotifications { get; set; }  // Phase 1B
     public DbSet<JobCompletion> JobCompletions { get; set; }  // Phase 5
     public DbSet<RevokedToken> RevokedTokens { get; set; }
+    public DbSet<RefreshToken> RefreshTokens { get; set; }
     public DbSet<Review> Reviews { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -158,6 +159,10 @@ public class ApplicationDbContext : DbContext
 
         modelBuilder.Entity<RevokedToken>()
             .HasIndex(rt => rt.Jti)
+            .IsUnique();
+
+        modelBuilder.Entity<RefreshToken>()
+            .HasIndex(rt => rt.Token)
             .IsUnique();
 
         modelBuilder.Entity<Review>()

@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -34,14 +35,14 @@ public class AuthController : ControllerBase
             .FirstOrDefaultAsync(p => p.Email == request.Email);
 
         if (pro == null || !BC.Verify(request.Password, pro.PasswordHash))
-        {
             return Unauthorized(new { message = "Invalid email or password" });
-        }
 
         var (token, _) = _jwtService.GenerateToken(pro, "Pro");
+        var refresh = await CreateRefreshTokenAsync(pro.Id, "Pro");
         return new LoginResponse
         {
             Token = token,
+            RefreshToken = refresh.Token,
             Role = "Pro",
             Id = pro.Id,
             FirstName = pro.ProName,
@@ -57,15 +58,16 @@ public class AuthController : ControllerBase
             .FirstOrDefaultAsync(u => u.Email == request.Email);
 
         if (user == null || !BC.Verify(request.Password, user.PasswordHash))
-        {
             return Unauthorized(new { message = "Invalid email or password" });
-        }
 
-        var (token, _) = _jwtService.GenerateToken(user, user.UserType ?? "User");
+        var role = user.UserType ?? "User";
+        var (token, _) = _jwtService.GenerateToken(user, role);
+        var refresh = await CreateRefreshTokenAsync(user.Id, role);
         return new LoginResponse
         {
             Token = token,
-            Role = user.UserType ?? "User",
+            RefreshToken = refresh.Token,
+            Role = role,
             Id = user.Id,
             FirstName = user.FirstName,
             LastName = user.LastName,
@@ -107,11 +109,12 @@ public class AuthController : ControllerBase
         _context.Users.Add(user);
         await _context.SaveChangesAsync();
 
-        // Generate token and return response
         var (token, _) = _jwtService.GenerateToken(user, "User");
+        var refresh = await CreateRefreshTokenAsync(user.Id, "User");
         return new LoginResponse
         {
             Token = token,
+            RefreshToken = refresh.Token,
             Role = "User",
             Id = user.Id,
             FirstName = user.FirstName,
@@ -154,11 +157,12 @@ public class AuthController : ControllerBase
         _context.Pros.Add(pro);
         await _context.SaveChangesAsync();
 
-        // Generate token and return response
         var (token, _) = _jwtService.GenerateToken(pro, "Pro");
+        var refresh = await CreateRefreshTokenAsync(pro.Id, "Pro");
         return new LoginResponse
         {
             Token = token,
+            RefreshToken = refresh.Token,
             Role = "Pro",
             Id = pro.Id,
             FirstName = pro.ProName,
@@ -218,11 +222,12 @@ public class AuthController : ControllerBase
 
             await _context.SaveChangesAsync();
 
-            // Generate token for new admin user
             var (token, _) = _jwtService.GenerateToken(user, "Admin");
+            var refresh = await CreateRefreshTokenAsync(user.Id, "Admin");
             return new LoginResponse
             {
                 Token = token,
+                RefreshToken = refresh.Token,
                 Role = "Admin",
                 Id = user.Id,
                 FirstName = user.FirstName,
@@ -238,19 +243,86 @@ public class AuthController : ControllerBase
 
     [HttpPost("logout")]
     [Authorize]
-    public async Task<IActionResult> Logout()
+    public async Task<IActionResult> Logout([FromBody] LogoutRequest? body = null)
     {
         var jti = User.FindFirstValue(JwtRegisteredClaimNames.Jti);
-        if (string.IsNullOrEmpty(jti))
-            return BadRequest(new { message = "Token has no jti claim." });
+        if (!string.IsNullOrEmpty(jti))
+        {
+            var expClaim = User.FindFirstValue(JwtRegisteredClaimNames.Exp);
+            DateTime expiresAt = DateTime.UtcNow.AddMinutes(15);
+            if (long.TryParse(expClaim, out var expSeconds))
+                expiresAt = DateTimeOffset.FromUnixTimeSeconds(expSeconds).UtcDateTime;
+            await _blacklist.RevokeAsync(jti, expiresAt);
+        }
 
-        // Parse expiry from the token's exp claim so we clean up the blacklist automatically
-        var expClaim = User.FindFirstValue(JwtRegisteredClaimNames.Exp);
-        DateTime expiresAt = DateTime.UtcNow.AddDays(1);
-        if (long.TryParse(expClaim, out var expSeconds))
-            expiresAt = DateTimeOffset.FromUnixTimeSeconds(expSeconds).UtcDateTime;
+        if (!string.IsNullOrEmpty(body?.RefreshToken))
+        {
+            var stored = await _context.RefreshTokens
+                .FirstOrDefaultAsync(rt => rt.Token == body.RefreshToken);
+            if (stored != null && !stored.IsRevoked)
+            {
+                stored.IsRevoked = true;
+                stored.RevokedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+            }
+        }
 
-        await _blacklist.RevokeAsync(jti, expiresAt);
         return Ok(new { message = "Logged out successfully." });
+    }
+
+    [HttpPost("refresh")]
+    public async Task<IActionResult> RefreshToken([FromBody] RefreshRequest request)
+    {
+        var stored = await _context.RefreshTokens
+            .FirstOrDefaultAsync(rt => rt.Token == request.RefreshToken);
+
+        if (stored == null || stored.IsRevoked || stored.ExpiresAt < DateTime.UtcNow)
+            return Unauthorized(new { message = "Invalid or expired refresh token" });
+
+        // Rotate: revoke old token
+        stored.IsRevoked = true;
+        stored.RevokedAt = DateTime.UtcNow;
+
+        string accessToken;
+        RefreshToken newRefresh;
+
+        if (stored.SubjectType == "Pro")
+        {
+            var pro = await _context.Pros.FindAsync(stored.SubjectId);
+            if (pro == null) return Unauthorized(new { message = "Account not found" });
+            (accessToken, _) = _jwtService.GenerateToken(pro, "Pro");
+            newRefresh = BuildRefreshToken(pro.Id, "Pro");
+        }
+        else
+        {
+            var user = await _context.Users.FindAsync(stored.SubjectId);
+            if (user == null) return Unauthorized(new { message = "Account not found" });
+            var role = user.UserType ?? "User";
+            (accessToken, _) = _jwtService.GenerateToken(user, role);
+            newRefresh = BuildRefreshToken(user.Id, role);
+        }
+
+        _context.RefreshTokens.Add(newRefresh);
+        await _context.SaveChangesAsync();
+
+        return Ok(new { accessToken, refreshToken = newRefresh.Token });
+    }
+
+    private static RefreshToken BuildRefreshToken(int subjectId, string subjectType) => new()
+    {
+        Token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64)),
+        SubjectId = subjectId,
+        SubjectType = subjectType,
+        ExpiresAt = DateTime.UtcNow.AddDays(30),
+        IsRevoked = false,
+        CreatedAt = DateTime.UtcNow
+    };
+
+    private async Task<RefreshToken> CreateRefreshTokenAsync(int subjectId, string subjectType)
+    {
+        var token = BuildRefreshToken(subjectId, subjectType);
+        _context.RefreshTokens.Add(token);
+        await _context.SaveChangesAsync();
+        return token;
     }
 }

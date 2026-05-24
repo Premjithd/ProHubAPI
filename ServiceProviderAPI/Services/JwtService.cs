@@ -8,7 +8,7 @@ namespace ServiceProviderAPI.Services;
 
 public interface IJwtService
 {
-    (string Token, string Jti) GenerateToken(object user, string role);
+    (string Token, string Jti) GenerateToken(object user, string role, int expiryMinutes = 15);
 }
 
 public class JwtService : IJwtService
@@ -20,7 +20,7 @@ public class JwtService : IJwtService
         _configuration = configuration;
     }
 
-    public (string Token, string Jti) GenerateToken(object user, string role)
+    public (string Token, string Jti) GenerateToken(object user, string role, int expiryMinutes = 15)
     {
         var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]));
         var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
@@ -93,7 +93,7 @@ public class JwtService : IJwtService
             issuer: _configuration["Jwt:Issuer"],
             audience: _configuration["Jwt:Audience"],
             claims: claims,
-            expires: DateTime.Now.AddDays(1),
+            expires: DateTime.UtcNow.AddMinutes(expiryMinutes),
             signingCredentials: credentials
         );
 
