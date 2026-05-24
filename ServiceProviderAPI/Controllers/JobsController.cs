@@ -564,11 +564,13 @@ public class JobsController : ControllerBase
             if (job.AssignedProId != proId)
                 return Forbid("This job is not assigned to you");
 
-            if (job.Status == "Completion Submitted" || job.Status == "Completed")
-                return BadRequest(new { message = "Completion already submitted for this job" });
+            if (job.Status == "Completed")
+                return BadRequest(new { message = "This job is already completed" });
 
-            // Remove any prior completion record before creating new one
+            // Allow re-submission only when the completion was disputed; otherwise block duplicate submissions
             var existing = await _context.JobCompletions.FirstOrDefaultAsync(c => c.JobId == id);
+            if (job.Status == "Completion Submitted" && existing?.Status != "Disputed")
+                return BadRequest(new { message = "Completion already submitted for this job" });
             if (existing != null)
                 _context.JobCompletions.Remove(existing);
 

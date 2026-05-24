@@ -468,6 +468,94 @@ public class AdminController : ControllerBase
         var joined = string.Join(", ", values.Where(v => !string.IsNullOrWhiteSpace(v)));
         return string.IsNullOrWhiteSpace(joined) ? null : joined;
     }
+
+    // GET: api/admin/disputes — list all disputed job completions
+    [HttpGet("disputes")]
+    public async Task<ActionResult<IEnumerable<object>>> GetDisputes()
+    {
+        var disputes = await _context.JobCompletions
+            .Where(c => c.Status == "Disputed")
+            .Include(c => c.Job)
+                .ThenInclude(j => j!.User)
+            .Include(c => c.Job)
+                .ThenInclude(j => j!.AssignedPro)
+            .OrderByDescending(c => c.DisputedAt)
+            .Select(c => new
+            {
+                completionId = c.Id,
+                jobId = c.JobId,
+                jobTitle = c.Job!.Title,
+                disputeReason = c.DisputeReason,
+                disputedAt = c.DisputedAt,
+                completionNotes = c.CompletionNotes,
+                consumer = c.Job.User == null ? null : new
+                {
+                    id = c.Job.User.Id,
+                    name = c.Job.User.FirstName + " " + c.Job.User.LastName,
+                    email = c.Job.User.Email
+                },
+                pro = c.Job.AssignedPro == null ? null : new
+                {
+                    id = c.Job.AssignedPro.Id,
+                    name = c.Job.AssignedPro.ProName,
+                    businessName = c.Job.AssignedPro.BusinessName,
+                    email = c.Job.AssignedPro.Email
+                }
+            })
+            .ToListAsync();
+
+        return Ok(disputes);
+    }
+
+    // POST: api/admin/jobs/{jobId}/completion/resolve
+    [HttpPost("jobs/{jobId}/completion/resolve")]
+    public async Task<ActionResult> ResolveDispute(int jobId, [FromBody] ResolveDisputeRequest request)
+    {
+        if (request.Resolution != "complete" && request.Resolution != "refund")
+            return BadRequest(new { message = "Resolution must be 'complete' or 'refund'" });
+
+        var completion = await _context.JobCompletions
+            .Include(c => c.Job)
+            .FirstOrDefaultAsync(c => c.JobId == jobId);
+
+        if (completion == null)
+            return NotFound(new { message = "Completion record not found" });
+
+        if (completion.Status != "Disputed")
+            return BadRequest(new { message = $"Completion is not in Disputed status (current: '{completion.Status}')" });
+
+        var job = completion.Job!;
+
+        if (request.Resolution == "complete")
+        {
+            completion.Status = "Verified";
+            completion.VerifiedAt = DateTime.UtcNow;
+            completion.VerifiedByConsumer = true;
+            job.Status = "Completed";
+        }
+        else
+        {
+            completion.Status = "Refunded";
+            job.Status = "Open";
+            job.AssignedProId = null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Notes))
+            completion.CompletionNotes = (completion.CompletionNotes ?? "") + $"\n[Admin resolution note: {request.Notes}]";
+
+        job.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        return Ok(new
+        {
+            message = request.Resolution == "complete"
+                ? "Dispute resolved: job marked as Completed"
+                : "Dispute resolved: job reopened for rebidding",
+            jobId,
+            jobStatus = job.Status,
+            completionStatus = completion.Status
+        });
+    }
 }
 
 file record NominatimGeoResult(
@@ -491,4 +579,13 @@ public class UpdateServiceRadiusRequest
 {
     [JsonPropertyName("serviceRadiusKm")]
     public int ServiceRadiusKm { get; set; }
+}
+
+public class ResolveDisputeRequest
+{
+    [JsonPropertyName("resolution")]
+    public string Resolution { get; set; } = string.Empty;
+
+    [JsonPropertyName("notes")]
+    public string? Notes { get; set; }
 }
