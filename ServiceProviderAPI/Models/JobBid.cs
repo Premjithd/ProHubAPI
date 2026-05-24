@@ -32,6 +32,9 @@ public class JobBid
     [StringLength(20)]
     public string? Status { get; set; } = "Pending";  // "Pending", "Accepted", "Rejected", "Withdrawn", "Expired"
 
+    [StringLength(500)]
+    public string? RejectionReason { get; set; }
+
     public bool IsMessageExchange { get; set; } = false;
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

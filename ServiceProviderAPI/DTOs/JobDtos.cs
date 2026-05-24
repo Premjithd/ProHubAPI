@@ -113,6 +113,12 @@ public class CancelJobRequest
     public string? Reason { get; set; }
 }
 
+public class RejectBidRequest
+{
+    [StringLength(500)]
+    public string? Reason { get; set; }
+}
+
 public class JobDto
 {
     public int Id { get; set; }

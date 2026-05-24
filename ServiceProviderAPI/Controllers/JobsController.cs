@@ -703,6 +703,7 @@ public class JobsController : ControllerBase
             foreach (var otherBid in otherBids)
             {
                 otherBid.Status = "Rejected";
+                otherBid.RejectionReason = "Another bid was accepted for this job";
             }
             _context.JobBids.UpdateRange(otherBids);
 
@@ -720,7 +721,7 @@ public class JobsController : ControllerBase
     // POST: api/jobs/{jobId}/bids/{bidId}/reject
     [Authorize]
     [HttpPost("{jobId}/bids/{bidId}/reject")]
-    public async Task<ActionResult<JobBid>> RejectBid(int jobId, int bidId)
+    public async Task<ActionResult<JobBid>> RejectBid(int jobId, int bidId, [FromBody] RejectBidRequest? body = null)
     {
         try
         {
@@ -745,6 +746,7 @@ public class JobsController : ControllerBase
 
             // Update bid status
             bid.Status = "Rejected";
+            bid.RejectionReason = string.IsNullOrWhiteSpace(body?.Reason) ? null : body.Reason.Trim();
             _context.JobBids.Update(bid);
 
             await _context.SaveChangesAsync();
