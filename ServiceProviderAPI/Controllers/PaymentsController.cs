@@ -260,8 +260,12 @@ public class PaymentsController : ControllerBase
             payment.Status = "Completed";
             payment.CompletedAt = DateTime.UtcNow;
 
-            // Do NOT update job status - it stays as is
             var job = payment.Job;
+            if (job != null && job.Status == "Bid Accepted")
+            {
+                job.Status = "Payment Made";
+                job.UpdatedAt = DateTime.UtcNow;
+            }
 
             // Update bid status to Accepted
             if (payment.Bid != null)

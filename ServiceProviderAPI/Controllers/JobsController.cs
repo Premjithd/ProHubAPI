@@ -689,7 +689,8 @@ public class JobsController : ControllerBase
 
             // Update job to assign to this pro
             job.AssignedProId = bid.ProId;
-            job.Status = "In Progress";
+            job.Status = "Bid Accepted";
+            job.UpdatedAt = DateTime.UtcNow;
             _context.Jobs.Update(job);
 
             // Reject all other bids for this job
@@ -772,9 +773,9 @@ public class JobsController : ControllerBase
             if (job.UserId != userId)
                 return Forbid("You can only cancel your own jobs");
 
-            var nonCancellableStatuses = new[] { "Completed", "Cancelled", "In Progress" };
+            var nonCancellableStatuses = new[] { "Payment Made", "Pro Confirmed", "In Progress", "Completion Submitted", "Completed", "Cancelled" };
             if (nonCancellableStatuses.Contains(job.Status))
-                return BadRequest($"Cannot cancel a job with status '{job.Status}'.");
+                return BadRequest($"Cannot cancel a job with status '{job.Status}'. Payment has already been made.");
 
             job.Status = "Cancelled";
             job.UpdatedAt = DateTime.UtcNow;
@@ -795,6 +796,38 @@ public class JobsController : ControllerBase
         {
             _logger.LogError($"Error cancelling job: {ex.Message}");
             return StatusCode(500, new { message = "Error cancelling job", error = ex.Message });
+        }
+    }
+
+    // POST: api/jobs/{id}/pro-confirm — Pro confirms job after payment; transitions to In Progress
+    [Authorize(Roles = "Pro")]
+    [HttpPost("{id}/pro-confirm")]
+    public async Task<IActionResult> ProConfirmJob(int id)
+    {
+        try
+        {
+            var proId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+
+            var job = await _context.Jobs.FindAsync(id);
+            if (job == null)
+                return NotFound(new { message = "Job not found" });
+
+            if (job.AssignedProId != proId)
+                return Forbid();
+
+            if (job.Status != "Payment Made")
+                return BadRequest(new { message = $"Job must be in 'Payment Made' status to confirm. Current status: '{job.Status}'" });
+
+            job.Status = "In Progress";
+            job.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = "Job confirmed and started", jobId = id, status = job.Status });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error confirming job {id}: {ex.Message}");
+            return StatusCode(500, new { message = "Error confirming job", error = ex.Message });
         }
     }
 
