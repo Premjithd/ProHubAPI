@@ -12,8 +12,8 @@ using ServiceProviderAPI.Data;
 namespace ServiceProviderAPI.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260313070520_AddJobIdToMessages")]
-    partial class AddJobIdToMessages
+    [Migration("20260525213244_DropServiceAreas")]
+    partial class DropServiceAreas
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -273,6 +273,10 @@ namespace ServiceProviderAPI.Migrations
 
                     b.Property<int>("ProId")
                         .HasColumnType("int");
+
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<string>("Status")
                         .HasMaxLength(20)
@@ -713,6 +717,112 @@ namespace ServiceProviderAPI.Migrations
                     b.ToTable("Pros");
                 });
 
+            modelBuilder.Entity("ServiceProviderAPI.Models.RefreshToken", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsRevoked")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("SubjectId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SubjectType")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Token")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Token")
+                        .IsUnique();
+
+                    b.ToTable("RefreshTokens");
+                });
+
+            modelBuilder.Entity("ServiceProviderAPI.Models.Review", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Comment")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("JobId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ProId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Rating")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ReviewerId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("JobId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Reviews_JobId_Unique");
+
+                    b.HasIndex("ProId")
+                        .HasDatabaseName("IX_Reviews_ProId");
+
+                    b.HasIndex("ReviewerId");
+
+                    b.ToTable("Reviews");
+                });
+
+            modelBuilder.Entity("ServiceProviderAPI.Models.RevokedToken", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Jti")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTime>("RevokedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Jti")
+                        .IsUnique();
+
+                    b.ToTable("RevokedTokens");
+                });
+
             modelBuilder.Entity("ServiceProviderAPI.Models.Service", b =>
                 {
                     b.Property<int>("Id")
@@ -753,42 +863,6 @@ namespace ServiceProviderAPI.Migrations
                     b.HasIndex("ServiceCategoryId");
 
                     b.ToTable("Services");
-                });
-
-            modelBuilder.Entity("ServiceProviderAPI.Models.ServiceArea", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("bit");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<string>("Type")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("ServiceAreas");
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.ServiceCategory", b =>
@@ -871,6 +945,12 @@ namespace ServiceProviderAPI.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
+
+                    b.Property<double?>("Latitude")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("Longitude")
+                        .HasColumnType("float");
 
                     b.Property<string>("PasswordHash")
                         .HasColumnType("nvarchar(max)");
@@ -1090,6 +1170,33 @@ namespace ServiceProviderAPI.Migrations
                     b.Navigation("Job");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("ServiceProviderAPI.Models.Review", b =>
+                {
+                    b.HasOne("ServiceProviderAPI.Models.Job", "Job")
+                        .WithMany()
+                        .HasForeignKey("JobId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ServiceProviderAPI.Models.Pro", "Pro")
+                        .WithMany()
+                        .HasForeignKey("ProId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("ServiceProviderAPI.Models.User", "Reviewer")
+                        .WithMany()
+                        .HasForeignKey("ReviewerId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("Job");
+
+                    b.Navigation("Pro");
+
+                    b.Navigation("Reviewer");
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.Service", b =>

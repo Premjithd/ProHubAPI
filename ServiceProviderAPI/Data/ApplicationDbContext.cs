@@ -23,7 +23,6 @@ public class ApplicationDbContext : DbContext
     public DbSet<MessageIndex> MessageIndexes { get; set; }
     public DbSet<Payment> Payments { get; set; }  // Phase 1C
     public DbSet<Material> Materials { get; set; }  // Phase 1D
-    public DbSet<ServiceArea> ServiceAreas { get; set; }  // Phase 2
     public DbSet<JobInsurance> JobInsurances { get; set; }  // Phase 1E
     public DbSet<JobNotification> JobNotifications { get; set; }  // Phase 1B
     public DbSet<JobCompletion> JobCompletions { get; set; }  // Phase 5
