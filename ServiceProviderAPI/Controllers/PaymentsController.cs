@@ -306,16 +306,16 @@ public class PaymentsController : ControllerBase
     }
 
     /// <summary>
-    /// POST: api/payments/{paymentId}/refund - Process refund for a payment
+    /// POST: api/payments/{paymentId}/refund - Process refund for a payment (Admin only).
+    /// Consumer-initiated refunds must go through the dispute flow: POST /api/jobs/{jobId}/completion/dispute.
+    /// Admins then resolve via POST /api/admin/jobs/{jobId}/completion/resolve with resolution="refund".
     /// </summary>
     [HttpPost("{paymentId}/refund")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> RefundPayment(int paymentId, [FromBody] Dictionary<string, string> reasonDict)
     {
         try
         {
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            var userId = int.Parse(userIdClaim ?? "0");
-
             var payment = await _context.Payments
                 .Include(p => p.Job)
                 .FirstOrDefaultAsync(p => p.Id == paymentId);
@@ -323,52 +323,46 @@ public class PaymentsController : ControllerBase
             if (payment == null)
                 return NotFound(new { message = "Payment not found" });
 
-            // Only consumer can request refund
-            if (payment.UserId != userId)
-                return Forbid();
-
             if (payment.Status == "Refunded")
                 return BadRequest(new { message = "Payment already refunded" });
 
-            var reason = reasonDict.ContainsKey("reason") ? reasonDict["reason"] : "Consumer requested refund";
+            if (string.IsNullOrEmpty(payment.RazorpayPaymentId))
+                return BadRequest(new { message = "Payment has no Razorpay payment ID — cannot process refund" });
 
-            // Process refund with payment provider
+            var reason = reasonDict.ContainsKey("reason") ? reasonDict["reason"] : "Admin-initiated refund";
+
             var refundId = await _paymentProvider.ProcessRefundAsync(
                 payment.RazorpayOrderId ?? "",
-                payment.RazorpayPaymentId ?? "",
+                payment.RazorpayPaymentId,
                 payment.Amount,
                 reason);
 
             if (refundId == null)
                 return BadRequest(new { message = "Failed to process refund" });
 
-            // Update payment status
             payment.Status = "Refunded";
             payment.RefundedAt = DateTime.UtcNow;
-            _context.Payments.Update(payment);
 
-            // Reset job status back to Open
             if (payment.Job != null)
             {
                 payment.Job.Status = "Open";
                 payment.Job.UpdatedAt = DateTime.UtcNow;
-                _context.Jobs.Update(payment.Job);
             }
 
             await _context.SaveChangesAsync();
 
-            _logger.LogInformation($"Refund processed: {refundId} for Payment:{paymentId}");
+            _logger.LogInformation("Admin refund: {RefundId} for Payment:{PaymentId}", refundId, paymentId);
 
             return Ok(new
             {
                 message = "Refund processed successfully",
-                refundId = refundId,
+                refundId,
                 status = payment.Status
             });
         }
         catch (Exception ex)
         {
-            _logger.LogError($"Error processing refund: {ex.Message}");
+            _logger.LogError(ex, "Error processing refund for Payment:{PaymentId}", paymentId);
             return StatusCode(500, new { message = "Error processing refund", error = ex.Message });
         }
     }

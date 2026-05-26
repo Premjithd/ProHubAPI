@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using ServiceProviderAPI.Data;
 using ServiceProviderAPI.Models;
 using ServiceProviderAPI.Services;
+using ServiceProviderAPI.Services.Abstractions;
 using System.Text.Json.Serialization;
 
 namespace ServiceProviderAPI.Controllers;
@@ -19,8 +20,18 @@ public class AdminController : ControllerBase
     private readonly IEmailService _emailService;
     private readonly ILogger<AdminController> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IPaymentProvider _paymentProvider;
+    private readonly INotificationService _notificationService;
 
-    public AdminController(ApplicationDbContext context, IJwtService jwtService, IHttpContextAccessor httpContextAccessor, IEmailService emailService, ILogger<AdminController> logger, IHttpClientFactory httpClientFactory)
+    public AdminController(
+        ApplicationDbContext context,
+        IJwtService jwtService,
+        IHttpContextAccessor httpContextAccessor,
+        IEmailService emailService,
+        ILogger<AdminController> logger,
+        IHttpClientFactory httpClientFactory,
+        IPaymentProvider paymentProvider,
+        INotificationService notificationService)
     {
         _context = context;
         _jwtService = jwtService;
@@ -28,6 +39,8 @@ public class AdminController : ControllerBase
         _emailService = emailService;
         _logger = logger;
         _httpClientFactory = httpClientFactory;
+        _paymentProvider = paymentProvider;
+        _notificationService = notificationService;
     }
 
     // Search for users by email or name
@@ -516,6 +529,9 @@ public class AdminController : ControllerBase
 
         var completion = await _context.JobCompletions
             .Include(c => c.Job)
+                .ThenInclude(j => j!.User)
+            .Include(c => c.Job)
+                .ThenInclude(j => j!.AssignedPro)
             .FirstOrDefaultAsync(c => c.JobId == jobId);
 
         if (completion == null)
@@ -525,6 +541,11 @@ public class AdminController : ControllerBase
             return BadRequest(new { message = $"Completion is not in Disputed status (current: '{completion.Status}')" });
 
         var job = completion.Job!;
+        var consumer = job.User;
+        var pro = job.AssignedPro;
+
+        if (!string.IsNullOrWhiteSpace(request.Notes))
+            completion.CompletionNotes = (completion.CompletionNotes ?? "") + $"\n[Admin resolution note: {request.Notes}]";
 
         if (request.Resolution == "complete")
         {
@@ -532,25 +553,99 @@ public class AdminController : ControllerBase
             completion.VerifiedAt = DateTime.UtcNow;
             completion.VerifiedByConsumer = true;
             job.Status = "Completed";
+            job.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("Admin resolved dispute for Job:{JobId} as Completed", jobId);
+
+            if (consumer != null)
+                await _notificationService.NotifyAsync(
+                    consumer.Email ?? "",
+                    consumer.PhoneNumber,
+                    $"Dispute resolved — Job #{jobId} marked complete",
+                    $"Hi {consumer.FirstName}, your dispute for job \"{job.Title}\" has been reviewed. " +
+                    "Our admin team has determined the work was completed satisfactorily. " +
+                    "No refund will be issued. Thank you for using yProHub.");
+
+            if (pro != null)
+                await _notificationService.NotifyAsync(
+                    pro.Email ?? "",
+                    pro.PhoneNumber,
+                    $"Dispute resolved in your favour — Job #{jobId}",
+                    $"Hi {pro.ProName}, the dispute for job \"{job.Title}\" has been reviewed and resolved in your favour. " +
+                    "The job is marked as Completed. Thank you for your service on yProHub.");
         }
-        else
+        else // refund
         {
+            var payment = await _context.Payments
+                .FirstOrDefaultAsync(p => p.JobId == jobId && p.Status == "Completed");
+
+            if (payment == null)
+            {
+                _logger.LogWarning("ResolveDispute refund: no completed payment found for Job:{JobId}", jobId);
+                return BadRequest(new { message = "No completed payment found for this job — cannot process refund" });
+            }
+
+            if (string.IsNullOrEmpty(payment.RazorpayPaymentId))
+                return BadRequest(new { message = "Payment has no Razorpay payment ID — cannot process refund" });
+
+            var refundReason = string.IsNullOrWhiteSpace(request.Notes)
+                ? "Admin-resolved dispute refund"
+                : $"Admin dispute resolution: {request.Notes}";
+
+            var refundId = await _paymentProvider.ProcessRefundAsync(
+                payment.RazorpayOrderId ?? "",
+                payment.RazorpayPaymentId,
+                payment.Amount,
+                refundReason);
+
+            if (refundId == null)
+            {
+                _logger.LogError("Razorpay refund failed for Job:{JobId}, Payment:{PaymentId}", jobId, payment.Id);
+                return StatusCode(502, new { message = "Refund request to Razorpay failed — please retry or refund manually in the Razorpay dashboard" });
+            }
+
+            payment.Status = "Refunded";
+            payment.RefundedAt = DateTime.UtcNow;
             completion.Status = "Refunded";
             job.Status = "Open";
             job.AssignedProId = null;
+            job.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("Admin refund processed: RefundId:{RefundId} for Job:{JobId}", refundId, jobId);
+
+            if (consumer != null)
+                await _notificationService.NotifyAsync(
+                    consumer.Email ?? "",
+                    consumer.PhoneNumber,
+                    $"Refund initiated — Job #{jobId}",
+                    $"Hi {consumer.FirstName}, your dispute for job \"{job.Title}\" has been reviewed. " +
+                    $"A refund of ₹{payment.Amount:F2} has been initiated to your original payment method. " +
+                    "Please allow 5–7 business days for the funds to appear. Thank you for using yProHub.");
+
+            if (pro != null)
+                await _notificationService.NotifyAsync(
+                    pro.Email ?? "",
+                    pro.PhoneNumber,
+                    $"Dispute resolved — Job #{jobId} refunded to consumer",
+                    $"Hi {pro.ProName}, the dispute for job \"{job.Title}\" has been reviewed. " +
+                    "Our admin team has determined that a refund to the consumer is appropriate. " +
+                    "The job has been reopened for new bids. If you have questions, please contact support.");
+
+            return Ok(new
+            {
+                message = "Dispute resolved: refund processed and job reopened for rebidding",
+                jobId,
+                jobStatus = job.Status,
+                completionStatus = completion.Status,
+                refundId
+            });
         }
-
-        if (!string.IsNullOrWhiteSpace(request.Notes))
-            completion.CompletionNotes = (completion.CompletionNotes ?? "") + $"\n[Admin resolution note: {request.Notes}]";
-
-        job.UpdatedAt = DateTime.UtcNow;
-        await _context.SaveChangesAsync();
 
         return Ok(new
         {
-            message = request.Resolution == "complete"
-                ? "Dispute resolved: job marked as Completed"
-                : "Dispute resolved: job reopened for rebidding",
+            message = "Dispute resolved: job marked as Completed",
             jobId,
             jobStatus = job.Status,
             completionStatus = completion.Status
