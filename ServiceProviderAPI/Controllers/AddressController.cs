@@ -1,8 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
-using System.Net.Http;
-using System.Threading.Tasks;
-using System.Collections.Generic;
-using System.Linq;
+using Microsoft.Extensions.Caching.Memory;
+using ServiceProviderAPI.Services;
 
 namespace ServiceProviderAPI.Controllers
 {
@@ -12,11 +10,15 @@ namespace ServiceProviderAPI.Controllers
     {
         private readonly HttpClient _httpClient;
         private readonly ILogger<AddressController> _logger;
+        private readonly IMemoryCache _cache;
+        private readonly NominatimThrottle _throttle;
 
-        public AddressController(HttpClient httpClient, ILogger<AddressController> logger)
+        public AddressController(HttpClient httpClient, ILogger<AddressController> logger, IMemoryCache cache, NominatimThrottle throttle)
         {
             _httpClient = httpClient;
             _logger = logger;
+            _cache = cache;
+            _throttle = throttle;
         }
 
         /// <summary>
@@ -34,9 +36,9 @@ namespace ServiceProviderAPI.Controllers
             try
             {
                 // Validate input
-                if (string.IsNullOrWhiteSpace(query) || query.Length < 6)
+                if (string.IsNullOrWhiteSpace(query) || query.Length < 3)
                 {
-                    return BadRequest(new { message = "Query must be at least 6 characters long" });
+                    return BadRequest(new { message = "Query must be at least 3 characters long" });
                 }
 
                 // Prevent abuse - query length limit
@@ -44,6 +46,15 @@ namespace ServiceProviderAPI.Controllers
                 {
                     return BadRequest(new { message = "Query too long" });
                 }
+
+                var cacheKey = $"addr_search:{countryCode}:{query.ToLowerInvariant().Trim()}";
+                if (_cache.TryGetValue(cacheKey, out object? cached))
+                {
+                    return Ok(cached);
+                }
+
+                // Honour Nominatim's 1 req/sec policy before hitting the network
+                await _throttle.WaitAsync(HttpContext.RequestAborted);
 
                 // Build Nominatim API URL
                 var url = $"https://nominatim.openstreetmap.org/search?" +
@@ -65,11 +76,13 @@ namespace ServiceProviderAPI.Controllers
                 response.EnsureSuccessStatusCode();
 
                 var content = await response.Content.ReadAsStringAsync();
-                
-                _logger.LogInformation($"Address search completed for query: {query}");
+                var result = System.Text.Json.JsonSerializer.Deserialize<object>(content);
+
+                _cache.Set(cacheKey, result, TimeSpan.FromMinutes(10));
+                _logger.LogInformation("Address search completed for query: {Query}", query);
 
                 // Return the raw JSON from Nominatim
-                return Ok(System.Text.Json.JsonSerializer.Deserialize<object>(content));
+                return Ok(result);
             }
             catch (HttpRequestException ex)
             {

@@ -657,7 +657,7 @@ public class JobsController : ControllerBase
                 CommenceDate = request.CommenceDate,
                 ExpectedDurationDays = request.ExpectedDurationDays,
                 MaterialsDescription = request.MaterialsDescription,
-                ExpiresAt = request.ExpiresAt ?? DateTime.UtcNow.AddDays(30), // Default to 30 days if not provided
+                ExpiresAt = request.ExpiresAt ?? DateTime.UtcNow.AddDays(5),
                 Status = "Pending"
             };
 

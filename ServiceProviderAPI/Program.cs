@@ -94,6 +94,8 @@ try
 
     // Add HttpClient for external API calls (e.g., Nominatim address service)
     builder.Services.AddHttpClient();
+    builder.Services.AddMemoryCache();
+    builder.Services.AddSingleton<NominatimThrottle>();
 
     Console.WriteLine("📡 Adding SignalR...");
     builder.Services.AddSignalR();

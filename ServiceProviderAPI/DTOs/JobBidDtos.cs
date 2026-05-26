@@ -25,7 +25,7 @@ public class CreateJobBidRequest
     [StringLength(2000)]
     public string? MaterialsDescription { get; set; }
 
-    // Quote expiry date (optional - server will set to 30 days from now if not provided)
+    // Quote expiry date (optional - server will set to 5 days from now if not provided)
     [JsonPropertyName("expiresAt")]
     public DateTime? ExpiresAt { get; set; }
 }

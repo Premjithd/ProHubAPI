@@ -173,11 +173,8 @@ public class VerificationService : IVerificationService
         };
         mailMessage.To.Add(email);
 
-        // Comment out actual sending for development
-        // await smtpClient.SendMailAsync(mailMessage);
-        
-        // For development, just log the code
-        Console.WriteLine($"Email verification code for {email}: {code}");
+        await smtpClient.SendMailAsync(mailMessage);
+        Console.WriteLine($"Email verification code sent to {email}");
     }
 
     private async Task SendVerificationSms(string phoneNumber, string code)
