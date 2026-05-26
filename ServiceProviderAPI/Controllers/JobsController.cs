@@ -423,8 +423,19 @@ public class JobsController : ControllerBase
                 Description = request.Description,
                 Location = request.Location,
                 Budget = request.Budget,
+                EstimatedBudget = request.EstimatedBudget,
                 Timeline = request.Timeline,
                 Attachments = request.Attachments,
+                ServiceAddressHouse = request.ServiceAddressHouse,
+                ServiceAddressStreet1 = request.ServiceAddressStreet1,
+                ServiceAddressCity = request.ServiceAddressCity,
+                ServiceAddressState = request.ServiceAddressState,
+                ServiceAddressCountry = request.ServiceAddressCountry,
+                ServiceAddressPIN = request.ServiceAddressPIN,
+                ContactPersonName = request.ContactPersonName,
+                ContactPersonPhone = request.ContactPersonPhone,
+                Latitude = request.Latitude,
+                Longitude = request.Longitude,
                 Status = "Open",
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
@@ -1034,12 +1045,28 @@ public class JobPhaseDto
 public class CreateJobRequest
 {
     public string? Title { get; set; }
-    public int? CategoryId { get; set; }  // Foreign key to ServiceCategory
+    public int? CategoryId { get; set; }
     public string? Description { get; set; }
+    // Backward-compat freeform location text
     public string? Location { get; set; }
+    // Structured service address (populated via address autofill)
+    public string? ServiceAddressHouse { get; set; }
+    public string? ServiceAddressStreet1 { get; set; }
+    public string? ServiceAddressCity { get; set; }
+    public string? ServiceAddressState { get; set; }
+    public string? ServiceAddressCountry { get; set; }
+    public string? ServiceAddressPIN { get; set; }
+    // Contact person
+    public string? ContactPersonName { get; set; }
+    public string? ContactPersonPhone { get; set; }
+    // Budget
     public string? Budget { get; set; }
+    public decimal? EstimatedBudget { get; set; }
     public string? Timeline { get; set; }
     public string? Attachments { get; set; }
+    // Coordinates (supplied by frontend address autofill)
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
 }
 
 public class UpdateJobRequest
