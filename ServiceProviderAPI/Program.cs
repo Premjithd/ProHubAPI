@@ -17,6 +17,16 @@ var builder = WebApplication.CreateBuilder(args);
 
 Console.WriteLine("🔧 Starting application...");
 
+// Fail fast: JWT key must be set before we wire up any services.
+// In development this comes from appsettings.Development.json.
+// In production set it via appsettings.Production.json or the ASPNETCORE_ env var override.
+var jwtKey = builder.Configuration["Jwt:Key"];
+if (string.IsNullOrWhiteSpace(jwtKey) || jwtKey.StartsWith("REPLACE_ME"))
+{
+    Console.Error.WriteLine("FATAL: Jwt:Key is not configured. Set it in appsettings.Production.json or via environment variable Jwt__Key.");
+    Environment.Exit(1);
+}
+
 try
 {
     Console.WriteLine("📦 Adding DbContext...");

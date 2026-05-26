@@ -1,4 +1,5 @@
 using ServiceProviderAPI.Services.Abstractions;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -6,14 +7,13 @@ using System.Text.Json;
 namespace ServiceProviderAPI.Services.Providers;
 
 /// <summary>
-/// Payment provider implementation using Razorpay
-/// Phase 1C implementation - default payment provider for India
-/// Uses Razorpay REST API for order creation and payment verification
+/// Razorpay implementation of IPaymentProvider.
+/// All methods use per-request Authorization headers (thread-safe).
+/// Razorpay REST API docs: https://razorpay.com/docs/api/
 /// </summary>
 public class RazorpayPaymentProvider : IPaymentProvider
 {
     private readonly ILogger<RazorpayPaymentProvider> _logger;
-    private readonly IConfiguration _configuration;
     private readonly HttpClient _httpClient;
     private readonly string _keyId;
     private readonly string _keySecret;
@@ -27,20 +27,15 @@ public class RazorpayPaymentProvider : IPaymentProvider
         HttpClient httpClient)
     {
         _logger = logger;
-        _configuration = configuration;
         _httpClient = httpClient;
 
-        _keyId = configuration.GetSection("Payment:Razorpay:KeyId").Value ?? "";
-        _keySecret = configuration.GetSection("Payment:Razorpay:KeySecret").Value ?? "";
+        _keyId = configuration["Payment:Razorpay:KeyId"] ?? "";
+        _keySecret = configuration["Payment:Razorpay:KeySecret"] ?? "";
 
         if (string.IsNullOrEmpty(_keyId) || string.IsNullOrEmpty(_keySecret))
-        {
             _logger.LogWarning("Razorpay credentials not configured. Payment functionality disabled.");
-        }
         else
-        {
-            _logger.LogInformation($"Razorpay configured with Key ID: {_keyId[..10]}...");
-        }
+            _logger.LogInformation("Razorpay configured with Key ID: {KeyPrefix}...", _keyId[..Math.Min(10, _keyId.Length)]);
     }
 
     public async Task<PaymentOrderResponse> CreateOrderAsync(
@@ -51,20 +46,17 @@ public class RazorpayPaymentProvider : IPaymentProvider
         string consumerEmail,
         string consumerPhone)
     {
+        if (string.IsNullOrEmpty(_keyId) || string.IsNullOrEmpty(_keySecret))
+        {
+            _logger.LogError("Razorpay not configured — cannot create order");
+            return new PaymentOrderResponse { Amount = amount };
+        }
+
         try
         {
-            if (string.IsNullOrEmpty(_keyId) || string.IsNullOrEmpty(_keySecret))
-            {
-                _logger.LogError("Razorpay not configured");
-                return new PaymentOrderResponse { Amount = amount };
-            }
+            _logger.LogInformation("Creating Razorpay order for Job:{JobId}, Bid:{BidId}, Amount:₹{Amount}", jobId, bidId, amount);
 
-            _logger.LogInformation($"Creating Razorpay order for Job:{jobId}, Bid:{bidId}, Amount:₹{amount}");
-
-            // Razorpay API expects amount in paisa (smallest unit)
             var amountInPaisa = (long)(amount * 100);
-
-            // Prepare request body
             var content = new FormUrlEncodedContent(new[]
             {
                 new KeyValuePair<string, string>("amount", amountInPaisa.ToString()),
@@ -76,147 +68,191 @@ public class RazorpayPaymentProvider : IPaymentProvider
                 new KeyValuePair<string, string>("notes[consumerEmail]", consumerEmail)
             });
 
-            // Create authorization header
-            var authString = Convert.ToBase64String(
-                Encoding.UTF8.GetBytes($"{_keyId}:{_keySecret}"));
-            _httpClient.DefaultRequestHeaders.Authorization = 
-                new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", authString);
+            var request = new HttpRequestMessage(HttpMethod.Post, $"{_apiBaseUrl}/orders")
+            {
+                Headers = { Authorization = BuildBasicAuth() },
+                Content = content
+            };
 
-            // Call Razorpay API
-            var response = await _httpClient.PostAsync($"{_apiBaseUrl}/orders", content);
-
+            var response = await _httpClient.SendAsync(request);
             if (!response.IsSuccessStatusCode)
             {
-                var errorContent = await response.Content.ReadAsStringAsync();
-                _logger.LogError($"Razorpay API error ({response.StatusCode}): {errorContent}");
+                var err = await response.Content.ReadAsStringAsync();
+                _logger.LogError("Razorpay order creation failed ({StatusCode}): {Body}", response.StatusCode, err);
                 return new PaymentOrderResponse { Amount = amount };
             }
 
-            var jsonResponse = await response.Content.ReadAsStringAsync();
-            using (JsonDocument doc = JsonDocument.Parse(jsonResponse))
+            var json = await response.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            var orderId = root.GetProperty("id").GetString();
+            _logger.LogInformation("Razorpay order created: {OrderId}", orderId);
+
+            return new PaymentOrderResponse
             {
-                var root = doc.RootElement;
-                var orderId = root.GetProperty("id").GetString();
-                var createdAt = root.GetProperty("created_at").GetInt64();
-
-                _logger.LogInformation($"Order created successfully: {orderId}");
-
-                var paymentResponse = new PaymentOrderResponse
+                OrderId = orderId,
+                Amount = amount,
+                Currency = "INR",
+                Key = _keyId,
+                Metadata = new Dictionary<string, object>
                 {
-                    OrderId = orderId,
-                    Amount = amount,
-                    Currency = "INR",
-                    Key = _keyId,
-                    Metadata = new Dictionary<string, object>
-                    {
-                        { "jobId", jobId },
-                        { "bidId", bidId },
-                        { "consumerName", consumerName },
-                        { "consumerEmail", consumerEmail },
-                        { "createdAt", createdAt }
-                    }
-                };
-
-                return paymentResponse;
-            }
+                    { "jobId", jobId },
+                    { "bidId", bidId },
+                    { "consumerName", consumerName },
+                    { "consumerEmail", consumerEmail },
+                    { "createdAt", root.GetProperty("created_at").GetInt64() }
+                }
+            };
         }
         catch (Exception ex)
         {
-            _logger.LogError($"Error creating Razorpay order: {ex.Message}");
+            _logger.LogError(ex, "Error creating Razorpay order for Job:{JobId}", jobId);
             return new PaymentOrderResponse { Amount = amount };
         }
     }
 
     public async Task<bool> VerifyPaymentAsync(string orderId, string paymentId, string signature)
     {
+        if (string.IsNullOrEmpty(_keySecret))
+        {
+            _logger.LogError("Razorpay secret not configured — cannot verify payment");
+            return false;
+        }
+
         try
         {
-            if (string.IsNullOrEmpty(_keySecret))
-            {
-                _logger.LogError("Razorpay secret not configured");
-                return false;
-            }
-
-            _logger.LogInformation($"Verifying Razorpay payment: Order:{orderId}, Payment:{paymentId}");
-
-            // Verify signature: HMAC-SHA256(orderId|paymentId, keySecret) == signature
-            var verifyInput = $"{orderId}|{paymentId}";
-            var hash = ComputeHmacSha256(verifyInput, _keySecret);
-
-            var isValid = hash.Equals(signature, StringComparison.OrdinalIgnoreCase);
+            // Razorpay signature: HMAC-SHA256(orderId + "|" + paymentId, keySecret)
+            var computed = ComputeHmacSha256($"{orderId}|{paymentId}", _keySecret);
+            var isValid = computed.Equals(signature, StringComparison.OrdinalIgnoreCase);
 
             if (isValid)
-            {
-                _logger.LogInformation($"Payment verified successfully: {paymentId}");
-            }
+                _logger.LogInformation("Payment verified: {PaymentId}", paymentId);
             else
-            {
-                _logger.LogWarning($"Payment verification failed: {paymentId}");
-            }
+                _logger.LogWarning("Payment verification failed: {PaymentId}", paymentId);
 
-            return await Task.FromResult(isValid);
+            return isValid;
         }
         catch (Exception ex)
         {
-            _logger.LogError($"Error verifying payment: {ex.Message}");
+            _logger.LogError(ex, "Error verifying payment {PaymentId}", paymentId);
             return false;
         }
     }
 
+    /// <summary>
+    /// Calls POST /v1/payments/{paymentId}/refund.
+    /// Returns the Razorpay refund ID (e.g. "rfnd_FP8QHiV938haTz") or null on failure.
+    /// </summary>
     public async Task<string?> ProcessRefundAsync(
         string orderId,
         string paymentId,
         decimal amount,
         string reason)
     {
+        if (string.IsNullOrEmpty(_keyId) || string.IsNullOrEmpty(_keySecret))
+        {
+            _logger.LogError("Razorpay not configured — cannot process refund");
+            return null;
+        }
+
         try
         {
-            if (string.IsNullOrEmpty(_keyId) || string.IsNullOrEmpty(_keySecret))
+            _logger.LogInformation("Processing refund: Payment:{PaymentId}, Amount:₹{Amount}", paymentId, amount);
+
+            var amountInPaisa = (long)(amount * 100);
+            var payload = JsonSerializer.Serialize(new
             {
-                _logger.LogError("Razorpay not configured");
+                amount = amountInPaisa,
+                notes = new { reason }
+            });
+
+            var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                $"{_apiBaseUrl}/payments/{paymentId}/refund")
+            {
+                Headers = { Authorization = BuildBasicAuth() },
+                Content = new StringContent(payload, Encoding.UTF8, "application/json")
+            };
+
+            var response = await _httpClient.SendAsync(request);
+            var body = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("Razorpay refund failed ({StatusCode}): {Body}", response.StatusCode, body);
                 return null;
             }
 
-            _logger.LogInformation($"Processing refund: Payment:{paymentId}, Amount:₹{amount}, Reason:{reason}");
+            using var doc = JsonDocument.Parse(body);
+            var refundId = doc.RootElement.GetProperty("id").GetString();
 
-            // TODO: Implement actual Razorpay refund API call
-            // var client = new RazorpayClient(_keyId, _keySecret);
-            // var refund = client.Payment.Refund(paymentId, new Dictionary<string, object> { ... });
-
-            var refundId = $"refund_{Guid.NewGuid().ToString().Substring(0, 8)}";
-            _logger.LogInformation($"Refund initiated: {refundId}");
-            return await Task.FromResult(refundId);
+            _logger.LogInformation("Refund created: {RefundId} for Payment:{PaymentId}", refundId, paymentId);
+            return refundId;
         }
         catch (Exception ex)
         {
-            _logger.LogError($"Error processing refund: {ex.Message}");
+            _logger.LogError(ex, "Error processing refund for Payment:{PaymentId}", paymentId);
             return null;
         }
     }
 
+    /// <summary>
+    /// Calls GET /v1/payments/{paymentId} to retrieve live payment status.
+    /// </summary>
     public async Task<PaymentStatus> GetPaymentStatusAsync(string paymentId)
     {
+        if (string.IsNullOrEmpty(_keyId) || string.IsNullOrEmpty(_keySecret))
+        {
+            _logger.LogWarning("Razorpay not configured — cannot fetch payment status");
+            return PaymentStatus.Unknown;
+        }
+
         try
         {
-            _logger.LogInformation($"Fetching payment status: {paymentId}");
+            var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                $"{_apiBaseUrl}/payments/{paymentId}")
+            {
+                Headers = { Authorization = BuildBasicAuth() }
+            };
 
-            // TODO: Implement actual Razorpay API call to get payment details
-            // For now, return Unknown
-            return await Task.FromResult(PaymentStatus.Unknown);
+            var response = await _httpClient.SendAsync(request);
+            var body = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("Razorpay payment status error ({StatusCode}): {Body}", response.StatusCode, body);
+                return PaymentStatus.Unknown;
+            }
+
+            using var doc = JsonDocument.Parse(body);
+            var status = doc.RootElement.GetProperty("status").GetString();
+
+            return status switch
+            {
+                "captured"   => PaymentStatus.Completed,
+                "authorized" => PaymentStatus.Pending,
+                "created"    => PaymentStatus.Pending,
+                "failed"     => PaymentStatus.Failed,
+                "refunded"   => PaymentStatus.Refunded,
+                _            => PaymentStatus.Unknown
+            };
         }
         catch (Exception ex)
         {
-            _logger.LogError($"Error fetching payment status: {ex.Message}");
+            _logger.LogError(ex, "Error fetching payment status for {PaymentId}", paymentId);
             return PaymentStatus.Unknown;
         }
     }
 
-    private string ComputeHmacSha256(string input, string key)
+    private AuthenticationHeaderValue BuildBasicAuth() =>
+        new("Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_keyId}:{_keySecret}")));
+
+    private static string ComputeHmacSha256(string input, string key)
     {
-        using (var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(key)))
-        {
-            var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(input));
-            return BitConverter.ToString(hash).Replace("-", "").ToLower();
-        }
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(key));
+        return BitConverter.ToString(hmac.ComputeHash(Encoding.UTF8.GetBytes(input)))
+            .Replace("-", "").ToLower();
     }
 }
