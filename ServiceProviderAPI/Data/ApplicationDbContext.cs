@@ -29,6 +29,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<RevokedToken> RevokedTokens { get; set; }
     public DbSet<RefreshToken> RefreshTokens { get; set; }
     public DbSet<Review> Reviews { get; set; }
+    public DbSet<PasswordResetToken> PasswordResetTokens { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -190,5 +191,9 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<Review>()
             .HasIndex(r => r.ProId)
             .HasDatabaseName("IX_Reviews_ProId");
+
+        modelBuilder.Entity<PasswordResetToken>()
+            .HasIndex(prt => prt.Token)
+            .IsUnique();
     }
 }

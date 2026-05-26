@@ -178,6 +178,18 @@ try
                     QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                     QueueLimit = 0
                 }));
+
+        // Forgot-password: 3 attempts per 15 minutes per IP (prevents enumeration abuse)
+        options.AddPolicy("auth-forgot-password", httpContext =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                factory: _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 3,
+                    Window = TimeSpan.FromMinutes(15),
+                    QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                    QueueLimit = 0
+                }));
     });
 
     Console.WriteLine("🌐 Adding CORS...");

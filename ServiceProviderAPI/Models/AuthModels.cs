@@ -51,3 +51,23 @@ public class AcceptAdminInvitationRequest
     [StringLength(255, MinimumLength = 6)]
     public string Password { get; set; }
 }
+
+public class ForgotPasswordRequest
+{
+    [Required]
+    [EmailAddress]
+    public string Email { get; set; } = null!;
+
+    [Required]
+    public string UserType { get; set; } = null!; // "User" or "Pro"
+}
+
+public class ResetPasswordRequest
+{
+    [Required]
+    public string Token { get; set; } = null!;
+
+    [Required]
+    [StringLength(255, MinimumLength = 8)]
+    public string NewPassword { get; set; } = null!;
+}

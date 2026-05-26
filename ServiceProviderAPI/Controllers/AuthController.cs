@@ -19,12 +19,21 @@ public class AuthController : ControllerBase
     private readonly ApplicationDbContext _context;
     private readonly IJwtService _jwtService;
     private readonly ITokenBlacklistService _blacklist;
+    private readonly INotificationService _notifications;
+    private readonly IConfiguration _configuration;
 
-    public AuthController(ApplicationDbContext context, IJwtService jwtService, ITokenBlacklistService blacklist)
+    public AuthController(
+        ApplicationDbContext context,
+        IJwtService jwtService,
+        ITokenBlacklistService blacklist,
+        INotificationService notifications,
+        IConfiguration configuration)
     {
         _context = context;
         _jwtService = jwtService;
         _blacklist = blacklist;
+        _notifications = notifications;
+        _configuration = configuration;
     }
 
     [HttpPost("pro/login")]
@@ -34,11 +43,34 @@ public class AuthController : ControllerBase
         var pro = await _context.Pros
             .FirstOrDefaultAsync(p => p.Email == request.Email);
 
-        if (pro == null || !BC.Verify(request.Password, pro.PasswordHash))
+        if (pro == null)
             return Unauthorized(new { message = "Invalid email or password" });
+
+        if (pro.LockoutUntil.HasValue && pro.LockoutUntil > DateTime.UtcNow)
+        {
+            var remaining = (int)Math.Ceiling((pro.LockoutUntil.Value - DateTime.UtcNow).TotalMinutes);
+            return Unauthorized(new { message = $"Account locked. Try again in {remaining} minute(s)." });
+        }
+
+        if (!BC.Verify(request.Password, pro.PasswordHash))
+        {
+            pro.FailedLoginAttempts++;
+            if (pro.FailedLoginAttempts >= 5)
+            {
+                pro.LockoutUntil = DateTime.UtcNow.AddMinutes(15);
+                pro.FailedLoginAttempts = 0;
+            }
+            await _context.SaveChangesAsync();
+            return Unauthorized(new { message = "Invalid email or password" });
+        }
+
+        pro.FailedLoginAttempts = 0;
+        pro.LockoutUntil = null;
 
         var (token, _) = _jwtService.GenerateToken(pro, "Pro");
         var refresh = await CreateRefreshTokenAsync(pro.Id, "Pro");
+        await _context.SaveChangesAsync();
+
         return new LoginResponse
         {
             Token = token,
@@ -57,12 +89,35 @@ public class AuthController : ControllerBase
         var user = await _context.Users
             .FirstOrDefaultAsync(u => u.Email == request.Email);
 
-        if (user == null || !BC.Verify(request.Password, user.PasswordHash))
+        if (user == null)
             return Unauthorized(new { message = "Invalid email or password" });
+
+        if (user.LockoutUntil.HasValue && user.LockoutUntil > DateTime.UtcNow)
+        {
+            var remaining = (int)Math.Ceiling((user.LockoutUntil.Value - DateTime.UtcNow).TotalMinutes);
+            return Unauthorized(new { message = $"Account locked. Try again in {remaining} minute(s)." });
+        }
+
+        if (!BC.Verify(request.Password, user.PasswordHash))
+        {
+            user.FailedLoginAttempts++;
+            if (user.FailedLoginAttempts >= 5)
+            {
+                user.LockoutUntil = DateTime.UtcNow.AddMinutes(15);
+                user.FailedLoginAttempts = 0;
+            }
+            await _context.SaveChangesAsync();
+            return Unauthorized(new { message = "Invalid email or password" });
+        }
+
+        user.FailedLoginAttempts = 0;
+        user.LockoutUntil = null;
 
         var role = user.UserType ?? "User";
         var (token, _) = _jwtService.GenerateToken(user, role);
         var refresh = await CreateRefreshTokenAsync(user.Id, role);
+        await _context.SaveChangesAsync();
+
         return new LoginResponse
         {
             Token = token,
@@ -79,13 +134,9 @@ public class AuthController : ControllerBase
     [EnableRateLimiting("auth-register")]
     public async Task<ActionResult<LoginResponse>> RegisterUser(UserRegistrationRequest request)
     {
-        // Check if email already exists
         if (await _context.Users.AnyAsync(u => u.Email == request.Email))
-        {
             return BadRequest(new { message = "Email already registered" });
-        }
 
-        // Create new user
         var user = new User
         {
             FirstName = request.FirstName,
@@ -127,13 +178,9 @@ public class AuthController : ControllerBase
     [EnableRateLimiting("auth-register")]
     public async Task<ActionResult<LoginResponse>> RegisterPro(ProRegistrationRequest request)
     {
-        // Check if email already exists
         if (await _context.Pros.AnyAsync(p => p.Email == request.Email))
-        {
             return BadRequest(new { message = "Email already registered" });
-        }
 
-        // Create new pro
         var pro = new Pro
         {
             ProName = request.Name,
@@ -173,7 +220,7 @@ public class AuthController : ControllerBase
     [HttpPost("accept-admin-invite")]
     public async Task<ActionResult<LoginResponse>> AcceptAdminInvitation([FromBody] AcceptAdminInvitationRequest request)
     {
-        if (string.IsNullOrEmpty(request.Token) || string.IsNullOrEmpty(request.Password) || 
+        if (string.IsNullOrEmpty(request.Token) || string.IsNullOrEmpty(request.Password) ||
             string.IsNullOrEmpty(request.FirstName) || string.IsNullOrEmpty(request.LastName))
         {
             return BadRequest(new { message = "Token, password, first name, and last name are required" });
@@ -181,7 +228,6 @@ public class AuthController : ControllerBase
 
         try
         {
-            // Find the invitation
             var invitation = await _context.AdminInvitations
                 .FirstOrDefaultAsync(ai => ai.Token == request.Token);
 
@@ -194,14 +240,12 @@ public class AuthController : ControllerBase
             if (invitation.ExpiresAt <= DateTime.UtcNow)
                 return BadRequest(new { message = "This invitation has expired" });
 
-            // Check if email already exists in Users table
             var existingUser = await _context.Users
                 .FirstOrDefaultAsync(u => u.Email == invitation.Email);
 
             if (existingUser != null)
                 return BadRequest(new { message = "An account already exists for this email" });
 
-            // Create new user with Admin role
             var user = new User
             {
                 Email = invitation.Email,
@@ -214,12 +258,9 @@ public class AuthController : ControllerBase
             };
 
             _context.Users.Add(user);
-
-            // Mark invitation as used
             invitation.IsUsed = true;
             invitation.UsedAt = DateTime.UtcNow;
             _context.AdminInvitations.Update(invitation);
-
             await _context.SaveChangesAsync();
 
             var (token, _) = _jwtService.GenerateToken(user, "Admin");
@@ -239,6 +280,97 @@ public class AuthController : ControllerBase
         {
             return BadRequest(new { message = "Error processing invitation", error = ex.Message });
         }
+    }
+
+    /// <summary>
+    /// POST /api/auth/forgot-password — sends a password reset link if the account exists.
+    /// Always returns 200 to prevent email enumeration.
+    /// </summary>
+    [HttpPost("forgot-password")]
+    [EnableRateLimiting("auth-forgot-password")]
+    public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
+    {
+        bool accountExists = request.UserType == "Pro"
+            ? await _context.Pros.AnyAsync(p => p.Email == request.Email)
+            : await _context.Users.AnyAsync(u => u.Email == request.Email);
+
+        if (!accountExists)
+            return Ok(new { message = "If an account with that email exists, you will receive a reset link." });
+
+        // Invalidate any outstanding tokens for this email/type
+        var existing = await _context.PasswordResetTokens
+            .Where(t => t.Email == request.Email && t.UserType == request.UserType && !t.IsUsed)
+            .ToListAsync();
+        foreach (var t in existing)
+            t.IsUsed = true;
+
+        var resetToken = new PasswordResetToken
+        {
+            Token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLower(),
+            Email = request.Email,
+            UserType = request.UserType,
+            ExpiresAt = DateTime.UtcNow.AddHours(1),
+            IsUsed = false,
+            CreatedAt = DateTime.UtcNow
+        };
+        _context.PasswordResetTokens.Add(resetToken);
+        await _context.SaveChangesAsync();
+
+        var appUrl = _configuration["AppUrl"] ?? "http://localhost:4200";
+        var resetLink = $"{appUrl}/auth/reset-password?token={resetToken.Token}&userType={request.UserType}";
+
+        await _notifications.NotifyAsync(
+            request.Email,
+            null,
+            "Reset your yProHub password",
+            $@"Hi,
+
+You requested a password reset for your yProHub account.
+
+Click the link below to set a new password (expires in 1 hour):
+
+{resetLink}
+
+If you did not request this, you can safely ignore this email.
+
+— yProHub Team");
+
+        return Ok(new { message = "If an account with that email exists, you will receive a reset link." });
+    }
+
+    /// <summary>
+    /// POST /api/auth/reset-password — validates the token and sets the new password.
+    /// </summary>
+    [HttpPost("reset-password")]
+    public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request)
+    {
+        var tokenEntry = await _context.PasswordResetTokens
+            .FirstOrDefaultAsync(t => t.Token == request.Token && !t.IsUsed && t.ExpiresAt > DateTime.UtcNow);
+
+        if (tokenEntry == null)
+            return BadRequest(new { message = "Invalid or expired reset token." });
+
+        if (tokenEntry.UserType == "Pro")
+        {
+            var pro = await _context.Pros.FirstOrDefaultAsync(p => p.Email == tokenEntry.Email);
+            if (pro == null) return BadRequest(new { message = "Account not found." });
+            pro.PasswordHash = BC.HashPassword(request.NewPassword);
+            pro.FailedLoginAttempts = 0;
+            pro.LockoutUntil = null;
+        }
+        else
+        {
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == tokenEntry.Email);
+            if (user == null) return BadRequest(new { message = "Account not found." });
+            user.PasswordHash = BC.HashPassword(request.NewPassword);
+            user.FailedLoginAttempts = 0;
+            user.LockoutUntil = null;
+        }
+
+        tokenEntry.IsUsed = true;
+        await _context.SaveChangesAsync();
+
+        return Ok(new { message = "Password reset successfully. You may now log in." });
     }
 
     [HttpPost("logout")]
@@ -279,7 +411,6 @@ public class AuthController : ControllerBase
         if (stored == null || stored.IsRevoked || stored.ExpiresAt < DateTime.UtcNow)
             return Unauthorized(new { message = "Invalid or expired refresh token" });
 
-        // Rotate: revoke old token
         stored.IsRevoked = true;
         stored.RevokedAt = DateTime.UtcNow;
 

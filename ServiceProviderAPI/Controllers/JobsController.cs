@@ -400,6 +400,13 @@ public class JobsController : ControllerBase
                 return Unauthorized(new { message = "User not found in authentication" });
             }
 
+            var poster = await _context.Users.FindAsync(userId);
+            if (poster == null)
+                return Unauthorized(new { message = "User not found" });
+
+            if (!poster.IsEmailVerified)
+                return StatusCode(403, new { message = "Please verify your email address before posting a job. Check your inbox for the verification email." });
+
             if (!ModelState.IsValid)
             {
                 _logger.LogWarning($"❌ Invalid model state: {string.Join("; ", ModelState.Values.SelectMany(v => v.Errors))}");
@@ -609,6 +616,13 @@ public class JobsController : ControllerBase
 
             if (proId == 0)
                 return Unauthorized("Pro user not found");
+
+            var bidder = await _context.Pros.FindAsync(proId);
+            if (bidder == null)
+                return Unauthorized("Pro user not found");
+
+            if (!bidder.IsEmailVerified)
+                return StatusCode(403, new { message = "Please verify your email address before submitting bids. Check your inbox for the verification email." });
 
             // Check if job exists
             var job = await _context.Jobs.FindAsync(id);

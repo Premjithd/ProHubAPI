@@ -1,3 +1,6 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -368,5 +371,118 @@ public class PaymentsController : ControllerBase
             _logger.LogError($"Error processing refund: {ex.Message}");
             return StatusCode(500, new { message = "Error processing refund", error = ex.Message });
         }
+    }
+
+    /// <summary>
+    /// POST: api/payments/webhook — Razorpay server-to-server webhook.
+    /// Handles payment.captured and payment.failed events as a reliable fallback to the
+    /// client-side /verify flow (e.g. browser crash after payment, network drop).
+    /// Must be AllowAnonymous — Razorpay calls this without a JWT.
+    /// </summary>
+    [HttpPost("webhook")]
+    [AllowAnonymous]
+    public async Task<IActionResult> RazorpayWebhook()
+    {
+        // Read raw body for signature verification
+        Request.EnableBuffering();
+        string rawBody;
+        using (var reader = new StreamReader(Request.Body, Encoding.UTF8, leaveOpen: true))
+            rawBody = await reader.ReadToEndAsync();
+
+        var signature = Request.Headers["X-Razorpay-Signature"].FirstOrDefault() ?? "";
+        var webhookSecret = _configuration["Payment:Razorpay:WebhookSecret"] ?? "";
+
+        // Verify HMAC-SHA256 signature when a secret is configured
+        if (!string.IsNullOrEmpty(webhookSecret))
+        {
+            using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(webhookSecret));
+            var computed = BitConverter.ToString(
+                    hmac.ComputeHash(Encoding.UTF8.GetBytes(rawBody)))
+                .Replace("-", "").ToLower();
+
+            if (!computed.Equals(signature, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning("Razorpay webhook: signature mismatch — request rejected");
+                return Unauthorized(new { message = "Invalid webhook signature" });
+            }
+        }
+        else
+        {
+            _logger.LogWarning("Razorpay webhook: WebhookSecret not configured — skipping signature check");
+        }
+
+        using var doc = JsonDocument.Parse(rawBody);
+        var root = doc.RootElement;
+        var eventType = root.TryGetProperty("event", out var ev) ? ev.GetString() : null;
+        _logger.LogInformation($"Razorpay webhook received: {eventType}");
+
+        switch (eventType)
+        {
+            case "payment.captured":
+            {
+                var entity = root.GetProperty("payload").GetProperty("payment").GetProperty("entity");
+                var orderId = entity.GetProperty("order_id").GetString();
+                var paymentId = entity.GetProperty("id").GetString();
+
+                var payment = await _context.Payments
+                    .Include(p => p.Job)
+                    .Include(p => p.Bid).ThenInclude(b => b!.Pro)
+                    .FirstOrDefaultAsync(p => p.RazorpayOrderId == orderId);
+
+                if (payment != null && payment.Status != "Completed")
+                {
+                    payment.RazorpayPaymentId = paymentId;
+                    payment.Status = "Completed";
+                    payment.CompletedAt = DateTime.UtcNow;
+
+                    if (payment.Job?.Status == "Bid Accepted")
+                    {
+                        payment.Job.Status = "Payment Made";
+                        payment.Job.UpdatedAt = DateTime.UtcNow;
+                    }
+                    if (payment.Bid != null)
+                    {
+                        payment.Bid.Status = "Accepted";
+                        payment.Bid.UpdatedAt = DateTime.UtcNow;
+                    }
+
+                    await _context.SaveChangesAsync();
+                    _logger.LogInformation($"Webhook: payment captured for order {orderId}");
+
+                    if (payment.Job != null && payment.Bid?.Pro != null)
+                    {
+                        await _notificationService.NotifyProPaymentReceivedAsync(
+                            payment.Job, payment.Bid, payment.Bid.Pro, payment.Amount);
+                    }
+                }
+                break;
+            }
+
+            case "payment.failed":
+            {
+                var entity = root.GetProperty("payload").GetProperty("payment").GetProperty("entity");
+                var orderId = entity.GetProperty("order_id").GetString();
+                var errorDesc = entity.TryGetProperty("error_description", out var ed)
+                    ? ed.GetString() : "Payment failed";
+
+                var payment = await _context.Payments
+                    .FirstOrDefaultAsync(p => p.RazorpayOrderId == orderId);
+
+                if (payment != null && payment.Status == "Pending")
+                {
+                    payment.Status = "Failed";
+                    payment.FailureReason = errorDesc;
+                    await _context.SaveChangesAsync();
+                    _logger.LogInformation($"Webhook: payment failed for order {orderId}");
+                }
+                break;
+            }
+
+            default:
+                _logger.LogInformation($"Razorpay webhook: unhandled event type '{eventType}' — ignored");
+                break;
+        }
+
+        return Ok(new { status = "ok" });
     }
 }

@@ -56,6 +56,8 @@ public class Pro
     public ICollection<AdminUser>? AdminUsers { get; set; }
     public bool IsEmailVerified { get; set; }
     public bool IsPhoneVerified { get; set; }
+    public int FailedLoginAttempts { get; set; }
+    public DateTime? LockoutUntil { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }
