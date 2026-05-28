@@ -14,7 +14,10 @@ public class Service
     public string Description { get; set; }
     
     public decimal Price { get; set; }
-    
+
+    [StringLength(500)]
+    public string? ImageUrl { get; set; }
+
     public int ProId { get; set; }
     public Pro? Pro { get; set; }
     
