@@ -18,6 +18,24 @@ public class SeedDataService
     {
         try
         {
+            // Seed initial service area (Trivandrum) — runs independently of category seed
+            if (!_context.ServiceAreas.Any())
+            {
+                await _context.ServiceAreas.AddAsync(new ServiceArea
+                {
+                    Country = "India",
+                    State = "Kerala",
+                    District = "Thiruvananthapuram",
+                    PinCode = null,
+                    IsActive = true,
+                    IsAutoEnrolled = false,
+                    Notes = "Initial launch area — Thiruvananthapuram, Kerala",
+                    CreatedAt = DateTime.UtcNow
+                });
+                await _context.SaveChangesAsync();
+                _logger.LogInformation("Seeded initial service area: Thiruvananthapuram, Kerala, India");
+            }
+
             // Check if already seeded
             if (_context.ServiceCategories.Any())
             {

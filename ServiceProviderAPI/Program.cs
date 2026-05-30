@@ -82,6 +82,9 @@ try
     // Phase 5: File storage service (placeholder for future implementation)
     // builder.Services.AddScoped<ServiceProviderAPI.Services.Abstractions.IFileStorageService, ...>();
 
+    // Service area service
+    builder.Services.AddScoped<IServiceAreaService, ServiceAreaService>();
+
     // Seed data service
     Console.WriteLine("🌱 Adding seed data service...");
     builder.Services.AddScoped<SeedDataService>();
@@ -209,7 +212,12 @@ try
     {
         options.AddPolicy("AllowAngular", policy =>
         {
-            policy.WithOrigins("http://localhost:4200")
+            policy.WithOrigins(
+                    "http://localhost:4200",
+                    "http://localhost",
+                    "capacitor://localhost",
+                    "https://localhost"
+                )
                   .AllowAnyHeader()
                   .AllowAnyMethod()
                   .AllowCredentials();
@@ -284,7 +292,11 @@ try
         app.UseSwaggerUI();
     }
 
-    app.UseHttpsRedirection();
+    // Keep HTTPS enforced outside development, but allow emulator HTTP in local dev.
+    if (!app.Environment.IsDevelopment())
+    {
+        app.UseHttpsRedirection();
+    }
 
     app.UseRateLimiter();
 

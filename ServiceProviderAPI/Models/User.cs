@@ -39,11 +39,14 @@ public class User
     public string? City { get; set; }
     
     [StringLength(100)]
+    public string? District { get; set; }
+
+    [StringLength(100)]
     public string? State { get; set; }
-    
+
     [StringLength(100)]
     public string? Country { get; set; }
-    
+
     [StringLength(20)]
     public string? ZipPostalCode { get; set; }
 

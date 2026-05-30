@@ -21,19 +21,25 @@ public class AuthController : ControllerBase
     private readonly ITokenBlacklistService _blacklist;
     private readonly INotificationService _notifications;
     private readonly IConfiguration _configuration;
+    private readonly IServiceAreaService _serviceAreaService;
+    private readonly ILogger<AuthController> _logger;
 
     public AuthController(
         ApplicationDbContext context,
         IJwtService jwtService,
         ITokenBlacklistService blacklist,
         INotificationService notifications,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IServiceAreaService serviceAreaService,
+        ILogger<AuthController> logger)
     {
         _context = context;
         _jwtService = jwtService;
         _blacklist = blacklist;
         _notifications = notifications;
         _configuration = configuration;
+        _serviceAreaService = serviceAreaService;
+        _logger = logger;
     }
 
     [HttpPost("pro/login")]
@@ -181,6 +187,15 @@ public class AuthController : ControllerBase
         if (await _context.Pros.AnyAsync(p => p.Email == request.Email))
             return BadRequest(new { message = "Email already registered" });
 
+        // Check if any service areas are configured; if so, restrict to allowed countries
+        var hasAnyAreas = await _context.ServiceAreas.AnyAsync();
+        if (hasAnyAreas && !string.IsNullOrWhiteSpace(request.Country))
+        {
+            var countryAllowed = await _serviceAreaService.IsCountryAllowedAsync(request.Country);
+            if (!countryAllowed)
+                return BadRequest(new { message = $"We are not currently operating in {request.Country}. Please check back soon as we expand our service areas." });
+        }
+
         var pro = new Pro
         {
             ProName = request.Name,
@@ -192,6 +207,7 @@ public class AuthController : ControllerBase
             Street1 = request.Street1,
             Street2 = request.Street2,
             City = request.City,
+            District = request.District,
             State = request.State,
             Country = request.Country,
             ZipPostalCode = request.ZipPostalCode,
@@ -203,6 +219,24 @@ public class AuthController : ControllerBase
 
         _context.Pros.Add(pro);
         await _context.SaveChangesAsync();
+
+        // Auto-enroll pro's location if country is allowed but specific area not yet listed
+        if (!string.IsNullOrWhiteSpace(request.Country))
+        {
+            try
+            {
+                await _serviceAreaService.AutoEnrollProLocationAsync(
+                    request.Country,
+                    request.State,
+                    request.District,
+                    request.ZipPostalCode);
+            }
+            catch (Exception ex)
+            {
+                // Non-fatal: log and continue
+                _logger.LogWarning(ex, "Failed to auto-enroll pro location for pro {ProId}", pro.Id);
+            }
+        }
 
         var (token, _) = _jwtService.GenerateToken(pro, "Pro");
         var refresh = await CreateRefreshTokenAsync(pro.Id, "Pro");

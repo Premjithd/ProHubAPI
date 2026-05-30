@@ -30,6 +30,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<RefreshToken> RefreshTokens { get; set; }
     public DbSet<Review> Reviews { get; set; }
     public DbSet<PasswordResetToken> PasswordResetTokens { get; set; }
+    public DbSet<ServiceArea> ServiceAreas { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

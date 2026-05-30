@@ -37,6 +37,9 @@ public class Job
     public string? ServiceAddressCity { get; set; }
 
     [StringLength(100)]
+    public string? ServiceAddressDistrict { get; set; }
+
+    [StringLength(100)]
     public string? ServiceAddressState { get; set; }
 
     [StringLength(100)]

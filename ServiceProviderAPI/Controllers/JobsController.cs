@@ -6,6 +6,7 @@ using ServiceProviderAPI.Data;
 using ServiceProviderAPI.DTOs;
 using ServiceProviderAPI.Hubs;
 using ServiceProviderAPI.Models;
+using ServiceProviderAPI.Services;
 using System.Security.Claims;
 using System.Linq;
 
@@ -18,12 +19,14 @@ public class JobsController : ControllerBase
     private readonly ApplicationDbContext _context;
     private readonly ILogger<JobsController> _logger;
     private readonly IHubContext<NotificationHub> _hubContext;
+    private readonly IServiceAreaService _serviceAreaService;
 
-    public JobsController(ApplicationDbContext context, ILogger<JobsController> logger, IHubContext<NotificationHub> hubContext)
+    public JobsController(ApplicationDbContext context, ILogger<JobsController> logger, IHubContext<NotificationHub> hubContext, IServiceAreaService serviceAreaService)
     {
         _context = context;
         _logger = logger;
         _hubContext = hubContext;
+        _serviceAreaService = serviceAreaService;
     }
 
     // GET: api/jobs/my-jobs?page=1&pageSize=20&status=Open
@@ -415,27 +418,46 @@ public class JobsController : ControllerBase
 
             _logger.LogInformation($"📋 Creating job with title: {request.Title}, categoryId: {request.CategoryId}");
 
+            // Validate service address against active service areas
+            var hasAnyAreas = await _context.ServiceAreas.AnyAsync();
+            if (hasAnyAreas && !string.IsNullOrWhiteSpace(request.ServiceAddressCountry))
+            {
+                var inArea = await _serviceAreaService.IsInServiceAreaAsync(
+                    request.ServiceAddressCountry,
+                    request.ServiceAddressState,
+                    request.ServiceAddressDistrict,
+                    request.ServiceAddressPIN);
+
+                if (!inArea)
+                {
+                    _logger.LogInformation("Job rejected — outside service area: {Country}/{State}/{District}/{PIN}",
+                        request.ServiceAddressCountry, request.ServiceAddressState, request.ServiceAddressDistrict, request.ServiceAddressPIN);
+                    return BadRequest(new { message = "We are not serving this area currently. Please check back soon." });
+                }
+            }
+
             var job = new Job
             {
                 UserId = userId,
                 Title = request.Title,
                 CategoryId = request.CategoryId,
                 Description = request.Description,
-                Location = request.Location,
-                Budget = request.Budget,
+                Location = request.ServiceAddressCity ?? request.Location ?? string.Empty,
+                Budget = request.Budget ?? (request.EstimatedBudget ?? 0).ToString(),
                 EstimatedBudget = request.EstimatedBudget,
+                Latitude = request.Latitude,
+                Longitude = request.Longitude,
                 Timeline = request.Timeline,
                 Attachments = request.Attachments,
                 ServiceAddressHouse = request.ServiceAddressHouse,
                 ServiceAddressStreet1 = request.ServiceAddressStreet1,
                 ServiceAddressCity = request.ServiceAddressCity,
+                ServiceAddressDistrict = request.ServiceAddressDistrict,
                 ServiceAddressState = request.ServiceAddressState,
                 ServiceAddressCountry = request.ServiceAddressCountry,
                 ServiceAddressPIN = request.ServiceAddressPIN,
                 ContactPersonName = request.ContactPersonName,
                 ContactPersonPhone = request.ContactPersonPhone,
-                Latitude = request.Latitude,
-                Longitude = request.Longitude,
                 Status = "Open",
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
@@ -1053,6 +1075,7 @@ public class CreateJobRequest
     public string? ServiceAddressHouse { get; set; }
     public string? ServiceAddressStreet1 { get; set; }
     public string? ServiceAddressCity { get; set; }
+    public string? ServiceAddressDistrict { get; set; }
     public string? ServiceAddressState { get; set; }
     public string? ServiceAddressCountry { get; set; }
     public string? ServiceAddressPIN { get; set; }

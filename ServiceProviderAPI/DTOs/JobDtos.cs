@@ -27,6 +27,9 @@ public class CreateJobRequest
     [StringLength(100)]
     public string? ServiceAddressCity { get; set; }
 
+    [StringLength(100)]
+    public string? ServiceAddressDistrict { get; set; }
+
     [Required(ErrorMessage = "State is required")]
     [StringLength(100)]
     public string? ServiceAddressState { get; set; }
@@ -80,6 +83,9 @@ public class UpdateJobRequest
 
     [StringLength(100)]
     public string? ServiceAddressCity { get; set; }
+
+    [StringLength(100)]
+    public string? ServiceAddressDistrict { get; set; }
 
     [StringLength(100)]
     public string? ServiceAddressState { get; set; }
@@ -136,6 +142,7 @@ public class JobDto
     public string? ServiceAddressStreet1 { get; set; }
     public string? ServiceAddressStreet2 { get; set; }
     public string? ServiceAddressCity { get; set; }
+    public string? ServiceAddressDistrict { get; set; }
     public string? ServiceAddressState { get; set; }
     public string? ServiceAddressCountry { get; set; }
     public string? ServiceAddressPIN { get; set; }

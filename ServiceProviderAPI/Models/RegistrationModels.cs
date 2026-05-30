@@ -39,6 +39,9 @@ public class UserRegistrationRequest
     [StringLength(100)]
     public string City { get; set; }
 
+    [StringLength(100)]
+    public string? District { get; set; }
+
     [Required]
     [StringLength(100)]
     public string State { get; set; }
@@ -91,6 +94,9 @@ public class ProRegistrationRequest
     [Required]
     [StringLength(100)]
     public string City { get; set; }
+
+    [StringLength(100)]
+    public string? District { get; set; }
 
     [Required]
     [StringLength(100)]
