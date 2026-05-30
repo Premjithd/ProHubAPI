@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using ServiceProviderAPI.Data;
 using ServiceProviderAPI.Models;
@@ -20,6 +21,10 @@ public class ServiceAreaService : IServiceAreaService
             sa.IsActive &&
             sa.Country.ToLower() == country.ToLower().Trim());
     }
+
+    // Strip trailing admin-level suffixes that geocoders append (e.g. "Thiruvananthapuram District").
+    private static string NormalizeAdmin(string value) =>
+        Regex.Replace(value.ToLower().Trim(), @"\s+(district|taluk|division|tehsil|block)$", "").Trim();
 
     public async Task<bool> IsInServiceAreaAsync(string country, string? state, string? district, string? pinCode)
     {
@@ -46,23 +51,23 @@ public class ServiceAreaService : IServiceAreaService
         // District-level match
         if (!string.IsNullOrWhiteSpace(district))
         {
-            var dist = district.ToLower().Trim();
+            var dist = NormalizeAdmin(district);
             if (areas.Any(sa =>
                     string.IsNullOrWhiteSpace(sa.PinCode) &&
                     !string.IsNullOrWhiteSpace(sa.District) &&
-                    sa.District.ToLower() == dist))
+                    NormalizeAdmin(sa.District) == dist))
                 return true;
         }
 
         // State-level match
         if (!string.IsNullOrWhiteSpace(state))
         {
-            var st = state.ToLower().Trim();
+            var st = NormalizeAdmin(state);
             if (areas.Any(sa =>
                     string.IsNullOrWhiteSpace(sa.PinCode) &&
                     string.IsNullOrWhiteSpace(sa.District) &&
                     !string.IsNullOrWhiteSpace(sa.State) &&
-                    sa.State.ToLower() == st))
+                    NormalizeAdmin(sa.State) == st))
                 return true;
         }
 
