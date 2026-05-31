@@ -172,4 +172,141 @@ public class ReviewsController : ControllerBase
             TotalReviews = ratings.Count
         });
     }
+
+    // ── User reviews (pro reviews user after completed job) ───────────────────
+
+    // POST /api/reviews/jobs/{jobId}/user — assigned pro submits a review for the customer
+    [HttpPost("jobs/{jobId}/user")]
+    [Authorize]
+    public async Task<ActionResult<UserReviewDto>> SubmitUserReview(int jobId, [FromBody] CreateReviewRequest request)
+    {
+        var callerIdStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!int.TryParse(callerIdStr, out var callerId))
+            return Unauthorized();
+
+        var job = await _context.Jobs.FindAsync(jobId);
+        if (job == null)
+            return NotFound(new { message = "Job not found" });
+
+        if (job.Status != "Completed")
+            return BadRequest(new { message = "Reviews can only be submitted for completed jobs" });
+
+        if (job.AssignedProId != callerId)
+            return Forbid();
+
+        var alreadyReviewed = await _context.UserReviews.AnyAsync(r => r.JobId == jobId);
+        if (alreadyReviewed)
+            return Conflict(new { message = "A review has already been submitted for this job" });
+
+        var review = new UserReview
+        {
+            JobId = jobId,
+            ReviewerId = callerId,
+            UserId = job.UserId,
+            Rating = request.Rating,
+            Comment = request.Comment,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _context.UserReviews.Add(review);
+        await _context.SaveChangesAsync();
+
+        var reviewer = await _context.Pros.FindAsync(callerId);
+
+        return CreatedAtAction(nameof(GetJobUserReview), new { jobId }, new UserReviewDto
+        {
+            Id = review.Id,
+            JobId = review.JobId,
+            JobTitle = job.Title,
+            ReviewerId = review.ReviewerId,
+            ReviewerName = reviewer?.ProName ?? "Professional",
+            UserId = review.UserId,
+            Rating = review.Rating,
+            Comment = review.Comment,
+            CreatedAt = review.CreatedAt
+        });
+    }
+
+    // GET /api/reviews/jobs/{jobId}/user — fetch the user review for a specific job
+    [HttpGet("jobs/{jobId}/user")]
+    [Authorize]
+    public async Task<ActionResult<UserReviewDto>> GetJobUserReview(int jobId)
+    {
+        var review = await _context.UserReviews
+            .Include(r => r.Reviewer)
+            .Include(r => r.Job)
+            .FirstOrDefaultAsync(r => r.JobId == jobId);
+
+        if (review == null)
+            return NotFound();
+
+        return Ok(new UserReviewDto
+        {
+            Id = review.Id,
+            JobId = review.JobId,
+            JobTitle = review.Job?.Title,
+            ReviewerId = review.ReviewerId,
+            ReviewerName = review.Reviewer?.ProName ?? "Professional",
+            UserId = review.UserId,
+            Rating = review.Rating,
+            Comment = review.Comment,
+            CreatedAt = review.CreatedAt
+        });
+    }
+
+    // GET /api/reviews/users/{userId} — paginated reviews received by a user
+    [HttpGet("users/{userId}")]
+    [Authorize]
+    public async Task<ActionResult<object>> GetUserReviews(int userId, [FromQuery] int page = 1, [FromQuery] int pageSize = 10)
+    {
+        var query = _context.UserReviews
+            .Where(r => r.UserId == userId)
+            .Include(r => r.Reviewer)
+            .Include(r => r.Job);
+
+        var total = await query.CountAsync();
+
+        var reviews = await query
+            .OrderByDescending(r => r.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(r => new UserReviewDto
+            {
+                Id = r.Id,
+                JobId = r.JobId,
+                JobTitle = r.Job != null ? r.Job.Title : null,
+                ReviewerId = r.ReviewerId,
+                ReviewerName = r.Reviewer != null ? r.Reviewer.ProName : "Professional",
+                UserId = r.UserId,
+                Rating = r.Rating,
+                Comment = r.Comment,
+                CreatedAt = r.CreatedAt
+            })
+            .ToListAsync();
+
+        return Ok(new { reviews, total, page, pageSize });
+    }
+
+    // GET /api/reviews/users/{userId}/summary — rating summary for a user
+    [HttpGet("users/{userId}/summary")]
+    [Authorize]
+    public async Task<ActionResult<UserRatingSummary>> GetUserRatingSummary(int userId)
+    {
+        var ratings = await _context.UserReviews
+            .Where(r => r.UserId == userId)
+            .Select(r => r.Rating)
+            .ToListAsync();
+
+        var breakdown = new int[5];
+        foreach (var r in ratings)
+            if (r >= 1 && r <= 5) breakdown[r - 1]++;
+
+        return Ok(new UserRatingSummary
+        {
+            UserId = userId,
+            AverageRating = ratings.Count > 0 ? Math.Round(ratings.Average(), 1) : 0,
+            TotalReviews = ratings.Count,
+            RatingBreakdown = breakdown
+        });
+    }
 }

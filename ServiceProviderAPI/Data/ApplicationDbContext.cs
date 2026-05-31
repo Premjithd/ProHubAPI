@@ -29,6 +29,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<RevokedToken> RevokedTokens { get; set; }
     public DbSet<RefreshToken> RefreshTokens { get; set; }
     public DbSet<Review> Reviews { get; set; }
+    public DbSet<UserReview> UserReviews { get; set; }
     public DbSet<PasswordResetToken> PasswordResetTokens { get; set; }
     public DbSet<ServiceArea> ServiceAreas { get; set; }
 
@@ -192,6 +193,33 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<Review>()
             .HasIndex(r => r.ProId)
             .HasDatabaseName("IX_Reviews_ProId");
+
+        modelBuilder.Entity<UserReview>()
+            .HasOne(r => r.Job)
+            .WithMany()
+            .HasForeignKey(r => r.JobId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<UserReview>()
+            .HasOne(r => r.Reviewer)
+            .WithMany()
+            .HasForeignKey(r => r.ReviewerId)
+            .OnDelete(DeleteBehavior.NoAction);
+
+        modelBuilder.Entity<UserReview>()
+            .HasOne(r => r.User)
+            .WithMany()
+            .HasForeignKey(r => r.UserId)
+            .OnDelete(DeleteBehavior.NoAction);
+
+        modelBuilder.Entity<UserReview>()
+            .HasIndex(r => r.JobId)
+            .IsUnique()
+            .HasDatabaseName("IX_UserReviews_JobId_Unique");
+
+        modelBuilder.Entity<UserReview>()
+            .HasIndex(r => r.UserId)
+            .HasDatabaseName("IX_UserReviews_UserId");
 
         modelBuilder.Entity<PasswordResetToken>()
             .HasIndex(prt => prt.Token)
