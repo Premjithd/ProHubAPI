@@ -15,6 +15,9 @@ public class PaymentDto
     public string? RazorpayOrderId { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
+    public DateTime? RefundedAt { get; set; }
+    public decimal? RefundAmount { get; set; }
+    public string? RefundReason { get; set; }
 }
 
 public class CreatePaymentRequest

@@ -513,7 +513,11 @@ public class AdminController : ControllerBase
                     name = c.Job.AssignedPro.ProName,
                     businessName = c.Job.AssignedPro.BusinessName,
                     email = c.Job.AssignedPro.Email
-                }
+                },
+                paymentAmount = _context.Payments
+                    .Where(p => p.JobId == c.JobId && p.Status == "Completed")
+                    .Select(p => (decimal?)p.Amount)
+                    .FirstOrDefault()
             })
             .ToListAsync();
 
@@ -607,6 +611,8 @@ public class AdminController : ControllerBase
 
             payment.Status = "Refunded";
             payment.RefundedAt = DateTime.UtcNow;
+            payment.RefundAmount = payment.Amount;
+            payment.RefundReason = refundReason;
             completion.Status = "Refunded";
             job.Status = "Open";
             job.AssignedProId = null;

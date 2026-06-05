@@ -45,6 +45,12 @@ public class Payment
 
     public DateTime? RefundedAt { get; set; }
 
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal? RefundAmount { get; set; }
+
+    [StringLength(500)]
+    public string? RefundReason { get; set; }
+
     // Navigation properties
     [ForeignKey("JobId")]
     public Job? Job { get; set; }

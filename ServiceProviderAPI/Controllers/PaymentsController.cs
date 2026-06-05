@@ -342,6 +342,8 @@ public class PaymentsController : ControllerBase
 
             payment.Status = "Refunded";
             payment.RefundedAt = DateTime.UtcNow;
+            payment.RefundAmount = payment.Amount;
+            payment.RefundReason = reason;
 
             if (payment.Job != null)
             {
@@ -468,6 +470,56 @@ public class PaymentsController : ControllerBase
                     payment.FailureReason = errorDesc;
                     await _context.SaveChangesAsync();
                     _logger.LogInformation($"Webhook: payment failed for order {orderId}");
+                }
+                break;
+            }
+
+            case "refund.processed":
+            {
+                var entity = root.GetProperty("payload").GetProperty("refund").GetProperty("entity");
+                var razorpayPaymentId = entity.GetProperty("payment_id").GetString();
+                var refundId = entity.GetProperty("id").GetString();
+
+                var payment = await _context.Payments
+                    .FirstOrDefaultAsync(p => p.RazorpayPaymentId == razorpayPaymentId);
+
+                if (payment != null && payment.Status == "Refunded")
+                {
+                    _logger.LogInformation(
+                        "Razorpay confirmed refund processed: RefundId:{RefundId} for Payment:{PaymentId}",
+                        refundId, payment.Id);
+                }
+                break;
+            }
+
+            case "refund.failed":
+            {
+                var entity = root.GetProperty("payload").GetProperty("refund").GetProperty("entity");
+                var razorpayPaymentId = entity.GetProperty("payment_id").GetString();
+                var errorDesc = entity.TryGetProperty("description", out var ed) ? ed.GetString() : "Refund failed at payment gateway";
+
+                var payment = await _context.Payments
+                    .Include(p => p.Job)
+                    .FirstOrDefaultAsync(p => p.RazorpayPaymentId == razorpayPaymentId);
+
+                if (payment != null && payment.Status == "Refunded")
+                {
+                    payment.Status = "Completed";
+                    payment.RefundedAt = null;
+                    payment.RefundAmount = null;
+                    payment.RefundReason = null;
+                    payment.FailureReason = $"Refund failed: {errorDesc}";
+
+                    if (payment.Job != null && payment.Job.Status == "Open")
+                    {
+                        payment.Job.Status = "Payment Made";
+                        payment.Job.UpdatedAt = DateTime.UtcNow;
+                    }
+
+                    await _context.SaveChangesAsync();
+                    _logger.LogError(
+                        "Razorpay refund failed for Payment:{PaymentId}: {Reason} — payment reverted to Completed",
+                        payment.Id, errorDesc);
                 }
                 break;
             }
