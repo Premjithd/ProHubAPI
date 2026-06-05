@@ -306,6 +306,58 @@ public class PaymentsController : ControllerBase
     }
 
     /// <summary>
+    /// GET: api/payments/admin - All payments with full refund details (Admin only).
+    /// </summary>
+    [HttpGet("admin")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> GetAllPaymentsAdmin(
+        [FromQuery] string? status = null,
+        [FromQuery] int? userId = null,
+        [FromQuery] int? proId = null)
+    {
+        var query = _context.Payments
+            .Include(p => p.Job)
+            .Include(p => p.User)
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(status))
+            query = query.Where(p => p.Status == status);
+
+        if (userId.HasValue)
+            query = query.Where(p => p.UserId == userId.Value);
+
+        if (proId.HasValue)
+            query = query.Where(p => p.Job != null && p.Job.AssignedProId == proId.Value);
+
+        var payments = await query
+            .OrderByDescending(p => p.CreatedAt)
+            .Select(p => new
+            {
+                id              = p.Id,
+                jobId           = p.JobId,
+                jobTitle        = p.Job != null ? p.Job.Title : null,
+                userId          = p.UserId,
+                consumerName    = p.User != null ? p.User.FirstName + " " + p.User.LastName : null,
+                consumerEmail   = p.User != null ? p.User.Email : null,
+                amount          = p.Amount,
+                platformFee     = p.PlatformFee,
+                proPayOut       = p.ProPayout,
+                status          = p.Status,
+                razorpayOrderId = p.RazorpayOrderId,
+                razorpayPaymentId = p.RazorpayPaymentId,
+                createdAt       = p.CreatedAt,
+                completedAt     = p.CompletedAt,
+                refundedAt      = p.RefundedAt,
+                refundAmount    = p.RefundAmount,
+                refundReason    = p.RefundReason,
+                failureReason   = p.FailureReason
+            })
+            .ToListAsync();
+
+        return Ok(payments);
+    }
+
+    /// <summary>
     /// POST: api/payments/{paymentId}/refund - Process refund for a payment (Admin only).
     /// Consumer-initiated refunds must go through the dispute flow: POST /api/jobs/{jobId}/completion/dispute.
     /// Admins then resolve via POST /api/admin/jobs/{jobId}/completion/resolve with resolution="refund".
