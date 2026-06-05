@@ -53,6 +53,10 @@ public class User
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
 
+    // Saved payment preference for checkout pre-fill
+    [StringLength(100)]
+    public string? UpiVpa { get; set; }
+
     public ICollection<AdminUser>? AdminUsers { get; set; }
     public bool IsEmailVerified { get; set; }
     public bool IsPhoneVerified { get; set; }

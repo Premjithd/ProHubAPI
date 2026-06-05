@@ -10,11 +10,12 @@ public class JobNotification
     [Required]
     public int JobId { get; set; }
 
-    [Required]
-    public int ProId { get; set; }
+    public int? ProId { get; set; }
+
+    public int? UserId { get; set; }
 
     [StringLength(20)]
-    public string? NotificationType { get; set; } = "JobPosted";  // "JobPosted", "JobUpdated", "Reminder"
+    public string? NotificationType { get; set; } = "JobPosted";  // "JobPosted", "JobUpdated", "Reminder", "BidReceived", "PaymentConfirmed", "JobCompleted"
 
     [StringLength(500)]
     public string? Message { get; set; }
@@ -36,4 +37,7 @@ public class JobNotification
 
     [ForeignKey("ProId")]
     public Pro? Pro { get; set; }
+
+    [ForeignKey("UserId")]
+    public User? User { get; set; }
 }

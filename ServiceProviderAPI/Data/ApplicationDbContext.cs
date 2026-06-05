@@ -32,6 +32,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<UserReview> UserReviews { get; set; }
     public DbSet<PasswordResetToken> PasswordResetTokens { get; set; }
     public DbSet<ServiceArea> ServiceAreas { get; set; }
+    public DbSet<Payout> Payouts { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -224,5 +225,27 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<PasswordResetToken>()
             .HasIndex(prt => prt.Token)
             .IsUnique();
+
+        modelBuilder.Entity<Payout>()
+            .HasOne(p => p.Pro)
+            .WithMany()
+            .HasForeignKey(p => p.ProId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Payout>()
+            .HasOne(p => p.Payment)
+            .WithMany()
+            .HasForeignKey(p => p.PaymentId)
+            .OnDelete(DeleteBehavior.NoAction);
+
+        modelBuilder.Entity<Payout>()
+            .HasOne(p => p.Job)
+            .WithMany()
+            .HasForeignKey(p => p.JobId)
+            .OnDelete(DeleteBehavior.NoAction);
+
+        modelBuilder.Entity<Payout>()
+            .Property(p => p.Amount)
+            .HasPrecision(18, 2);
     }
 }

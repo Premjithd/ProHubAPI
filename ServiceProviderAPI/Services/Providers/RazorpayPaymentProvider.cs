@@ -15,6 +15,7 @@ public class RazorpayPaymentProvider : IPaymentProvider
 {
     private readonly ILogger<RazorpayPaymentProvider> _logger;
     private readonly HttpClient _httpClient;
+    private readonly IConfiguration _configuration;
     private readonly string _keyId;
     private readonly string _keySecret;
     private readonly string _apiBaseUrl = "https://api.razorpay.com/v1";
@@ -28,6 +29,7 @@ public class RazorpayPaymentProvider : IPaymentProvider
     {
         _logger = logger;
         _httpClient = httpClient;
+        _configuration = configuration;
 
         _keyId = configuration["Payment:Razorpay:KeyId"] ?? "";
         _keySecret = configuration["Payment:Razorpay:KeySecret"] ?? "";
@@ -243,6 +245,201 @@ public class RazorpayPaymentProvider : IPaymentProvider
         {
             _logger.LogError(ex, "Error fetching payment status for {PaymentId}", paymentId);
             return PaymentStatus.Unknown;
+        }
+    }
+
+    public async Task<string?> CreateOrGetContactAsync(int proId, string name, string email, string phone)
+    {
+        if (string.IsNullOrEmpty(_keyId) || string.IsNullOrEmpty(_keySecret))
+        {
+            _logger.LogError("Razorpay not configured — cannot create contact");
+            return null;
+        }
+
+        try
+        {
+            var payload = JsonSerializer.Serialize(new
+            {
+                name,
+                email,
+                contact = phone,
+                type = "vendor",
+                reference_id = $"pro_{proId}"
+            });
+
+            var request = new HttpRequestMessage(HttpMethod.Post, $"{_apiBaseUrl}/contacts")
+            {
+                Headers = { Authorization = BuildBasicAuth() },
+                Content = new StringContent(payload, Encoding.UTF8, "application/json")
+            };
+
+            var response = await _httpClient.SendAsync(request);
+            var body = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("Razorpay contact creation failed ({Status}): {Body}", response.StatusCode, body);
+                return null;
+            }
+
+            using var doc = JsonDocument.Parse(body);
+            var contactId = doc.RootElement.GetProperty("id").GetString();
+            _logger.LogInformation("Razorpay contact created: {ContactId} for Pro:{ProId}", contactId, proId);
+            return contactId;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating Razorpay contact for Pro:{ProId}", proId);
+            return null;
+        }
+    }
+
+    public async Task<string?> CreateFundAccountAsync(
+        string contactId,
+        string accountType,
+        string accountHolderName,
+        string? accountNumber,
+        string? ifsc,
+        string? vpa)
+    {
+        if (string.IsNullOrEmpty(_keyId) || string.IsNullOrEmpty(_keySecret))
+        {
+            _logger.LogError("Razorpay not configured — cannot create fund account");
+            return null;
+        }
+
+        try
+        {
+            object accountDetails = accountType == "vpa"
+                ? new { address = vpa }
+                : new { name = accountHolderName, ifsc, account_number = accountNumber };
+
+            var payload = JsonSerializer.Serialize(new
+            {
+                contact_id = contactId,
+                account_type = accountType,
+                bank_account = accountType == "bank_account" ? accountDetails : null,
+                vpa = accountType == "vpa" ? accountDetails : null
+            });
+
+            var request = new HttpRequestMessage(HttpMethod.Post, $"{_apiBaseUrl}/fund_accounts")
+            {
+                Headers = { Authorization = BuildBasicAuth() },
+                Content = new StringContent(payload, Encoding.UTF8, "application/json")
+            };
+
+            var response = await _httpClient.SendAsync(request);
+            var body = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("Razorpay fund account creation failed ({Status}): {Body}", response.StatusCode, body);
+                return null;
+            }
+
+            using var doc = JsonDocument.Parse(body);
+            var fundAccountId = doc.RootElement.GetProperty("id").GetString();
+            _logger.LogInformation("Razorpay fund account created: {FundAccountId}", fundAccountId);
+            return fundAccountId;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating Razorpay fund account for contact:{ContactId}", contactId);
+            return null;
+        }
+    }
+
+    public async Task<string?> InitiatePayoutAsync(
+        string fundAccountId,
+        decimal amount,
+        string mode,
+        string purpose,
+        string referenceId)
+    {
+        if (string.IsNullOrEmpty(_keyId) || string.IsNullOrEmpty(_keySecret))
+        {
+            _logger.LogError("Razorpay not configured — cannot initiate payout");
+            return null;
+        }
+
+        try
+        {
+            var amountInPaisa = (long)(amount * 100);
+            var payload = JsonSerializer.Serialize(new
+            {
+                account_number = _configuration["Payment:Razorpay:PayoutAccountNumber"] ?? "",
+                fund_account_id = fundAccountId,
+                amount = amountInPaisa,
+                currency = "INR",
+                mode,
+                purpose,
+                reference_id = referenceId,
+                narration = $"yProHub payout {referenceId}"
+            });
+
+            var request = new HttpRequestMessage(HttpMethod.Post, $"{_apiBaseUrl}/payouts")
+            {
+                Headers = { Authorization = BuildBasicAuth() },
+                Content = new StringContent(payload, Encoding.UTF8, "application/json")
+            };
+
+            var response = await _httpClient.SendAsync(request);
+            var body = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("Razorpay payout initiation failed ({Status}): {Body}", response.StatusCode, body);
+                return null;
+            }
+
+            using var doc = JsonDocument.Parse(body);
+            var payoutId = doc.RootElement.GetProperty("id").GetString();
+            _logger.LogInformation("Razorpay payout initiated: {PayoutId}, Amount:₹{Amount}, Mode:{Mode}", payoutId, amount, mode);
+            return payoutId;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error initiating Razorpay payout via fund account:{FundAccountId}", fundAccountId);
+            return null;
+        }
+    }
+
+    public async Task<RazorpayPayoutStatus> GetRazorpayPayoutStatusAsync(string payoutId)
+    {
+        if (string.IsNullOrEmpty(_keyId) || string.IsNullOrEmpty(_keySecret))
+            return RazorpayPayoutStatus.Unknown;
+
+        try
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, $"{_apiBaseUrl}/payouts/{payoutId}")
+            {
+                Headers = { Authorization = BuildBasicAuth() }
+            };
+
+            var response = await _httpClient.SendAsync(request);
+            var body = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+                return RazorpayPayoutStatus.Unknown;
+
+            using var doc = JsonDocument.Parse(body);
+            var status = doc.RootElement.GetProperty("status").GetString();
+
+            return status switch
+            {
+                "queued"     => RazorpayPayoutStatus.Pending,
+                "pending"    => RazorpayPayoutStatus.Pending,
+                "processing" => RazorpayPayoutStatus.Processing,
+                "processed"  => RazorpayPayoutStatus.Processed,
+                "failed"     => RazorpayPayoutStatus.Failed,
+                "reversed"   => RazorpayPayoutStatus.Reversed,
+                _            => RazorpayPayoutStatus.Unknown
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching payout status for {PayoutId}", payoutId);
+            return RazorpayPayoutStatus.Unknown;
         }
     }
 

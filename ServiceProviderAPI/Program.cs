@@ -82,6 +82,9 @@ try
     // Phase 5: File storage service (placeholder for future implementation)
     // builder.Services.AddScoped<ServiceProviderAPI.Services.Abstractions.IFileStorageService, ...>();
 
+    // Payout service
+    builder.Services.AddScoped<ServiceProviderAPI.Services.IPayoutService, ServiceProviderAPI.Services.PayoutService>();
+
     // Service area service
     builder.Services.AddScoped<IServiceAreaService, ServiceAreaService>();
 

@@ -689,6 +689,15 @@ public class JobsController : ControllerBase
             job.IsBid = true;
             _context.Jobs.Update(job);
 
+            // Notify the job owner that a bid has been received
+            _context.JobNotifications.Add(new JobNotification
+            {
+                JobId = id,
+                UserId = job.UserId,
+                NotificationType = "BidReceived",
+                Message = $"A professional has submitted a bid for your job \"{job.Title}\""
+            });
+
             await _context.SaveChangesAsync();
 
             return CreatedAtAction(nameof(GetJob), new { id = job.Id }, jobBid);

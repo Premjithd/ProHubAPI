@@ -3,7 +3,9 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ServiceProviderAPI.Data;
+using ServiceProviderAPI.DTOs;
 using ServiceProviderAPI.Models;
+using ServiceProviderAPI.Services;
 using BC = BCrypt.Net.BCrypt;
 
 namespace ServiceProviderAPI.Controllers;
@@ -13,10 +15,12 @@ namespace ServiceProviderAPI.Controllers;
 public class ProsController : ControllerBase
 {
     private readonly ApplicationDbContext _context;
+    private readonly IPayoutService _payoutService;
 
-    public ProsController(ApplicationDbContext context)
+    public ProsController(ApplicationDbContext context, IPayoutService payoutService)
     {
         _context = context;
+        _payoutService = payoutService;
     }
 
     [HttpGet]
@@ -124,12 +128,23 @@ public class ProsController : ControllerBase
         }
 
         existingPro.ProName = pro.ProName;
-        existingPro.Email = pro.Email;
+
+        if (!string.Equals(existingPro.Email, pro.Email, StringComparison.OrdinalIgnoreCase))
+        {
+            existingPro.Email = pro.Email;
+            existingPro.IsEmailVerified = false;
+        }
+
+        if (existingPro.PhoneNumber != pro.PhoneNumber)
+        {
+            existingPro.PhoneNumber = pro.PhoneNumber;
+            existingPro.IsPhoneVerified = false;
+        }
+
         if (!string.IsNullOrEmpty(pro.PasswordHash))
         {
             existingPro.PasswordHash = BC.HashPassword(pro.PasswordHash);
         }
-        existingPro.PhoneNumber = pro.PhoneNumber;
         existingPro.BusinessName = pro.BusinessName;
         existingPro.HouseNameNumber = pro.HouseNameNumber;
         existingPro.Street1 = pro.Street1;
@@ -157,7 +172,7 @@ public class ProsController : ControllerBase
             }
         }
 
-        return Ok(existingPro);
+        return Ok(SafePro(existingPro));
     }
 
     [HttpDelete("{id}")]
@@ -174,6 +189,93 @@ public class ProsController : ControllerBase
         await _context.SaveChangesAsync();
 
         return NoContent();
+    }
+
+    // GET: api/pros/{id}/bank-details
+    [HttpGet("{id}/bank-details")]
+    [Authorize(Roles = "Pro,Admin")]
+    public async Task<IActionResult> GetBankDetails(int id)
+    {
+        var callerId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "0");
+        bool isAdmin = User.IsInRole("Admin");
+
+        if (!isAdmin && callerId != id)
+            return Forbid();
+
+        var pro = await _context.Pros.FindAsync(id);
+        if (pro == null) return NotFound();
+
+        var hasBankDetails = pro.PayoutMethod == "UPI"
+            ? !string.IsNullOrWhiteSpace(pro.UpiVpa)
+            : !string.IsNullOrWhiteSpace(pro.BankAccountNumber) && !string.IsNullOrWhiteSpace(pro.BankIfsc);
+
+        return Ok(new ProBankDetailsDto
+        {
+            PayoutMethod = pro.PayoutMethod,
+            BankAccountHolderName = pro.BankAccountHolderName,
+            BankAccountNumber = pro.BankAccountNumber,
+            BankIfsc = pro.BankIfsc,
+            UpiVpa = pro.UpiVpa,
+            HasBankDetails = hasBankDetails
+        });
+    }
+
+    // PUT: api/pros/{id}/bank-details
+    [HttpPut("{id}/bank-details")]
+    [Authorize(Roles = "Pro")]
+    public async Task<IActionResult> UpdateBankDetails(int id, [FromBody] UpdateBankDetailsRequest request)
+    {
+        var callerId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "0");
+        if (callerId != id) return Forbid();
+
+        if (request.PayoutMethod != "Bank" && request.PayoutMethod != "UPI")
+            return BadRequest(new { message = "PayoutMethod must be 'Bank' or 'UPI'" });
+
+        if (request.PayoutMethod == "Bank" &&
+            (string.IsNullOrWhiteSpace(request.BankAccountNumber) || string.IsNullOrWhiteSpace(request.BankIfsc)))
+            return BadRequest(new { message = "BankAccountNumber and BankIfsc are required for Bank payout method" });
+
+        if (request.PayoutMethod == "UPI" && string.IsNullOrWhiteSpace(request.UpiVpa))
+            return BadRequest(new { message = "UpiVpa is required for UPI payout method" });
+
+        var pro = await _context.Pros.FindAsync(id);
+        if (pro == null) return NotFound();
+
+        // If bank details changed, clear cached Razorpay fund account so a new one is created
+        bool detailsChanged =
+            pro.PayoutMethod != request.PayoutMethod ||
+            pro.BankAccountNumber != request.BankAccountNumber ||
+            pro.BankIfsc != request.BankIfsc ||
+            pro.UpiVpa != request.UpiVpa;
+
+        pro.PayoutMethod = request.PayoutMethod;
+        pro.BankAccountHolderName = request.BankAccountHolderName;
+        pro.BankAccountNumber = request.BankAccountNumber;
+        pro.BankIfsc = request.BankIfsc;
+        pro.UpiVpa = request.UpiVpa;
+        pro.UpdatedAt = DateTime.UtcNow;
+
+        if (detailsChanged)
+            pro.RazorpayFundAccountId = null;
+
+        await _context.SaveChangesAsync();
+
+        // Retry any pending payouts now that bank details are set
+        var pendingPayouts = await _context.Payouts
+            .Where(p => p.ProId == id && (p.Status == "Pending" || p.Status == "Failed"))
+            .ToListAsync();
+
+        foreach (var payout in pendingPayouts)
+        {
+            try { await _payoutService.ProcessPendingPayoutAsync(payout.Id); }
+            catch (Exception ex)
+            {
+                // non-fatal — logged inside the service
+                _ = ex;
+            }
+        }
+
+        return Ok(new { message = "Bank details updated successfully" });
     }
 
     private bool ProExists(int id)

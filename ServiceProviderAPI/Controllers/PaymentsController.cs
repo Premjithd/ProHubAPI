@@ -290,6 +290,19 @@ public class PaymentsController : ControllerBase
                     job, payment.Bid, payment.Bid.Pro, payment.Amount);
             }
 
+            // Notify user that their payment was confirmed
+            if (job != null)
+            {
+                _context.JobNotifications.Add(new JobNotification
+                {
+                    JobId = job.Id,
+                    UserId = payment.UserId,
+                    NotificationType = "PaymentConfirmed",
+                    Message = $"Your payment of ₹{payment.Amount:N0} for \"{job.Title}\" has been confirmed."
+                });
+                await _context.SaveChangesAsync();
+            }
+
             return Ok(new
             {
                 message = "Payment verified successfully",
@@ -572,6 +585,67 @@ public class PaymentsController : ControllerBase
                     _logger.LogError(
                         "Razorpay refund failed for Payment:{PaymentId}: {Reason} — payment reverted to Completed",
                         payment.Id, errorDesc);
+                }
+                break;
+            }
+
+            case "payout.processed":
+            {
+                var entity = root.GetProperty("payload").GetProperty("payout").GetProperty("entity");
+                var razorpayPayoutId = entity.GetProperty("id").GetString();
+
+                var payout = await _context.Payouts
+                    .Include(p => p.Pro)
+                    .FirstOrDefaultAsync(p => p.RazorpayPayoutId == razorpayPayoutId);
+
+                if (payout != null && payout.Status == "Processing")
+                {
+                    payout.Status = "Processed";
+                    payout.ProcessedAt = DateTime.UtcNow;
+                    payout.UpdatedAt = DateTime.UtcNow;
+                    await _context.SaveChangesAsync();
+
+                    _logger.LogInformation("Payout:{PayoutId} processed — RazorpayId:{RazorpayPayoutId}", payout.Id, razorpayPayoutId);
+
+                    if (payout.Pro != null)
+                        await _notificationService.NotifyAsync(
+                            payout.Pro.Email,
+                            payout.Pro.PhoneNumber,
+                            $"Payout of ₹{payout.Amount:F2} delivered",
+                            $"Hi {payout.Pro.ProName}, your payout of ₹{payout.Amount:F2} for job #{payout.JobId} " +
+                            "has been successfully delivered to your bank account / UPI.");
+                }
+                break;
+            }
+
+            case "payout.failed":
+            {
+                var entity = root.GetProperty("payload").GetProperty("payout").GetProperty("entity");
+                var razorpayPayoutId = entity.GetProperty("id").GetString();
+                var errorDesc = entity.TryGetProperty("failure_reason", out var fr)
+                    ? fr.GetString()
+                    : "Payout failed at payment gateway";
+
+                var payout = await _context.Payouts
+                    .Include(p => p.Pro)
+                    .FirstOrDefaultAsync(p => p.RazorpayPayoutId == razorpayPayoutId);
+
+                if (payout != null && payout.Status == "Processing")
+                {
+                    payout.Status = "Failed";
+                    payout.FailureReason = errorDesc;
+                    payout.UpdatedAt = DateTime.UtcNow;
+                    await _context.SaveChangesAsync();
+
+                    _logger.LogError("Payout:{PayoutId} failed — {Reason}", payout.Id, errorDesc);
+
+                    if (payout.Pro != null)
+                        await _notificationService.NotifyAsync(
+                            payout.Pro.Email,
+                            payout.Pro.PhoneNumber,
+                            $"Payout failed — Job #{payout.JobId}",
+                            $"Hi {payout.Pro.ProName}, your payout of ₹{payout.Amount:F2} could not be delivered. " +
+                            "Please verify your bank details or contact support.");
                 }
                 break;
             }

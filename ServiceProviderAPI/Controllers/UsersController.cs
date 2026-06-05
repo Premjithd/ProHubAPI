@@ -49,7 +49,7 @@ public class UsersController : ControllerBase
         u.Id, u.FirstName, u.LastName, u.Email, u.PhoneNumber,
         u.HouseNameNumber, u.Street1, u.Street2, u.City, u.State,
         u.Country, u.ZipPostalCode, u.CreatedAt, u.UpdatedAt,
-        u.IsEmailVerified, u.IsPhoneVerified
+        u.IsEmailVerified, u.IsPhoneVerified, u.UpiVpa
     };
 
     [HttpPost]
@@ -83,12 +83,23 @@ public class UsersController : ControllerBase
 
         existingUser.FirstName = user.FirstName;
         existingUser.LastName = user.LastName;
-        existingUser.Email = user.Email;
+
+        if (!string.Equals(existingUser.Email, user.Email, StringComparison.OrdinalIgnoreCase))
+        {
+            existingUser.Email = user.Email;
+            existingUser.IsEmailVerified = false;
+        }
+
+        if (existingUser.PhoneNumber != user.PhoneNumber)
+        {
+            existingUser.PhoneNumber = user.PhoneNumber;
+            existingUser.IsPhoneVerified = false;
+        }
+
         if (!string.IsNullOrEmpty(user.PasswordHash))
         {
             existingUser.PasswordHash = BC.HashPassword(user.PasswordHash);
         }
-        existingUser.PhoneNumber = user.PhoneNumber;
         existingUser.HouseNameNumber = user.HouseNameNumber;
         existingUser.Street1 = user.Street1;
         existingUser.Street2 = user.Street2;
@@ -96,6 +107,7 @@ public class UsersController : ControllerBase
         existingUser.State = user.State;
         existingUser.Country = user.Country;
         existingUser.ZipPostalCode = user.ZipPostalCode;
+        existingUser.UpiVpa = user.UpiVpa;
         existingUser.UpdatedAt = DateTime.UtcNow;
 
         try
@@ -114,7 +126,7 @@ public class UsersController : ControllerBase
             }
         }
 
-        return Ok(existingUser);
+        return Ok(SafeUser(existingUser));
     }
 
     [HttpDelete("{id}")]
@@ -133,8 +145,43 @@ public class UsersController : ControllerBase
         return NoContent();
     }
 
+    [HttpGet("{id}/payment-details")]
+    [Authorize(Roles = "User")]
+    public async Task<IActionResult> GetPaymentDetails(int id)
+    {
+        var callerId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "0");
+        if (callerId != id) return Forbid();
+
+        var user = await _context.Users.FindAsync(id);
+        if (user == null) return NotFound();
+
+        return Ok(new { upiVpa = user.UpiVpa, hasPaymentDetails = !string.IsNullOrWhiteSpace(user.UpiVpa) });
+    }
+
+    [HttpPut("{id}/payment-details")]
+    [Authorize(Roles = "User")]
+    public async Task<IActionResult> UpdatePaymentDetails(int id, [FromBody] UpdateUserPaymentDetailsRequest request)
+    {
+        var callerId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "0");
+        if (callerId != id) return Forbid();
+
+        var user = await _context.Users.FindAsync(id);
+        if (user == null) return NotFound();
+
+        user.UpiVpa = string.IsNullOrWhiteSpace(request.UpiVpa) ? null : request.UpiVpa.Trim();
+        user.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        return Ok(new { message = "Payment details updated successfully", upiVpa = user.UpiVpa });
+    }
+
     private bool UserExists(int id)
     {
         return _context.Users.Any(e => e.Id == id);
     }
+}
+
+public class UpdateUserPaymentDetailsRequest
+{
+    public string? UpiVpa { get; set; }
 }

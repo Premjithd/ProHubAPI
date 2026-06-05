@@ -19,15 +19,18 @@ public class NotificationsController : ControllerBase
         _context = context;
     }
 
-    // GET: api/notifications  — All notifications for the current Pro
+    // GET: api/notifications  — All notifications for the current user (Pro or User)
     [HttpGet]
     public async Task<IActionResult> GetMyNotifications([FromQuery] bool unreadOnly = false, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
-        var proId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "0");
-        if (proId == 0) return Unauthorized();
+        var callerId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "0");
+        if (callerId == 0) return Unauthorized();
 
-        var query = _context.JobNotifications
-            .Where(n => n.ProId == proId);
+        bool isPro = User.IsInRole("Pro");
+
+        var query = isPro
+            ? _context.JobNotifications.Where(n => n.ProId == callerId)
+            : _context.JobNotifications.Where(n => n.UserId == callerId);
 
         if (unreadOnly)
             query = query.Where(n => !n.IsRead);
@@ -47,11 +50,14 @@ public class NotificationsController : ControllerBase
     [HttpGet("unread-count")]
     public async Task<IActionResult> GetUnreadCount()
     {
-        var proId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "0");
-        if (proId == 0) return Unauthorized();
+        var callerId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "0");
+        if (callerId == 0) return Unauthorized();
 
-        var count = await _context.JobNotifications
-            .CountAsync(n => n.ProId == proId && !n.IsRead);
+        bool isPro = User.IsInRole("Pro");
+
+        var count = isPro
+            ? await _context.JobNotifications.CountAsync(n => n.ProId == callerId && !n.IsRead)
+            : await _context.JobNotifications.CountAsync(n => n.UserId == callerId && !n.IsRead);
 
         return Ok(new { count });
     }
@@ -60,12 +66,17 @@ public class NotificationsController : ControllerBase
     [HttpPut("{id}/read")]
     public async Task<IActionResult> MarkRead(int id)
     {
-        var proId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "0");
-        if (proId == 0) return Unauthorized();
+        var callerId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "0");
+        if (callerId == 0) return Unauthorized();
+
+        bool isPro = User.IsInRole("Pro");
 
         var notification = await _context.JobNotifications.FindAsync(id);
         if (notification == null) return NotFound();
-        if (notification.ProId != proId) return Forbid();
+
+        // Verify ownership
+        if (isPro ? notification.ProId != callerId : notification.UserId != callerId)
+            return Forbid();
 
         if (!notification.IsRead)
         {
@@ -81,12 +92,14 @@ public class NotificationsController : ControllerBase
     [HttpPut("read-all")]
     public async Task<IActionResult> MarkAllRead()
     {
-        var proId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "0");
-        if (proId == 0) return Unauthorized();
+        var callerId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "0");
+        if (callerId == 0) return Unauthorized();
 
-        var unread = await _context.JobNotifications
-            .Where(n => n.ProId == proId && !n.IsRead)
-            .ToListAsync();
+        bool isPro = User.IsInRole("Pro");
+
+        var unread = isPro
+            ? await _context.JobNotifications.Where(n => n.ProId == callerId && !n.IsRead).ToListAsync()
+            : await _context.JobNotifications.Where(n => n.UserId == callerId && !n.IsRead).ToListAsync();
 
         var now = DateTime.UtcNow;
         foreach (var n in unread)

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ServiceProviderAPI.Data;
 using ServiceProviderAPI.Models;
+using ServiceProviderAPI.Services;
 using System.Security.Claims;
 
 namespace ServiceProviderAPI.Controllers;
@@ -13,10 +14,17 @@ namespace ServiceProviderAPI.Controllers;
 public class JobCompletionController : ControllerBase
 {
     private readonly ApplicationDbContext _context;
+    private readonly IPayoutService _payoutService;
+    private readonly ILogger<JobCompletionController> _logger;
 
-    public JobCompletionController(ApplicationDbContext context)
+    public JobCompletionController(
+        ApplicationDbContext context,
+        IPayoutService payoutService,
+        ILogger<JobCompletionController> logger)
     {
         _context = context;
+        _payoutService = payoutService;
+        _logger = logger;
     }
 
     // GET: api/jobs/{jobId}/completion
@@ -61,6 +69,26 @@ public class JobCompletionController : ControllerBase
         job.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
+
+        // Trigger payout to the pro
+        if (job.AssignedProId.HasValue)
+        {
+            var payment = await _context.Payments
+                .FirstOrDefaultAsync(p => p.JobId == jobId && p.Status == "Completed");
+            if (payment != null)
+            {
+                try
+                {
+                    await _payoutService.CreateAndProcessPayoutAsync(
+                        payment.Id, jobId, job.AssignedProId.Value, payment.ProPayout);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Payout creation failed for Job:{JobId} — payout can be retried manually", jobId);
+                }
+            }
+        }
+
         return Ok(new { message = "Job completion verified successfully", job, completion });
     }
 

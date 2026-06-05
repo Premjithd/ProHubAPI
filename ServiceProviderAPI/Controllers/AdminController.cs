@@ -22,6 +22,7 @@ public class AdminController : ControllerBase
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IPaymentProvider _paymentProvider;
     private readonly INotificationService _notificationService;
+    private readonly IPayoutService _payoutService;
 
     public AdminController(
         ApplicationDbContext context,
@@ -31,7 +32,8 @@ public class AdminController : ControllerBase
         ILogger<AdminController> logger,
         IHttpClientFactory httpClientFactory,
         IPaymentProvider paymentProvider,
-        INotificationService notificationService)
+        INotificationService notificationService,
+        IPayoutService payoutService)
     {
         _context = context;
         _jwtService = jwtService;
@@ -41,6 +43,7 @@ public class AdminController : ControllerBase
         _httpClientFactory = httpClientFactory;
         _paymentProvider = paymentProvider;
         _notificationService = notificationService;
+        _payoutService = payoutService;
     }
 
     // Search for users by email or name
@@ -561,6 +564,25 @@ public class AdminController : ControllerBase
             await _context.SaveChangesAsync();
 
             _logger.LogInformation("Admin resolved dispute for Job:{JobId} as Completed", jobId);
+
+            // Trigger payout to the pro
+            if (job.AssignedProId.HasValue)
+            {
+                var payment = await _context.Payments
+                    .FirstOrDefaultAsync(p => p.JobId == jobId && p.Status == "Completed");
+                if (payment != null)
+                {
+                    try
+                    {
+                        await _payoutService.CreateAndProcessPayoutAsync(
+                            payment.Id, jobId, job.AssignedProId.Value, payment.ProPayout);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Payout creation failed for admin-resolved Job:{JobId}", jobId);
+                    }
+                }
+            }
 
             if (consumer != null)
                 await _notificationService.NotifyAsync(

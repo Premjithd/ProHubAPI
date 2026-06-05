@@ -57,6 +57,42 @@ public interface IPaymentProvider
     Task<PaymentStatus> GetPaymentStatusAsync(string paymentId);
 
     /// <summary>
+    /// Create a Razorpay contact for a pro (required before creating a fund account).
+    /// Returns the contact ID or null on failure.
+    /// </summary>
+    Task<string?> CreateOrGetContactAsync(int proId, string name, string email, string phone);
+
+    /// <summary>
+    /// Register a bank account or UPI VPA as a fund account linked to a contact.
+    /// accountType: "bank_account" or "vpa"
+    /// Returns fund account ID or null on failure.
+    /// </summary>
+    Task<string?> CreateFundAccountAsync(
+        string contactId,
+        string accountType,
+        string accountHolderName,
+        string? accountNumber,
+        string? ifsc,
+        string? vpa);
+
+    /// <summary>
+    /// Initiate a payout to a registered fund account.
+    /// mode: "NEFT", "IMPS", or "UPI"
+    /// Returns payout ID or null on failure.
+    /// </summary>
+    Task<string?> InitiatePayoutAsync(
+        string fundAccountId,
+        decimal amount,
+        string mode,
+        string purpose,
+        string referenceId);
+
+    /// <summary>
+    /// Get current status of a Razorpay payout.
+    /// </summary>
+    Task<RazorpayPayoutStatus> GetRazorpayPayoutStatusAsync(string payoutId);
+
+    /// <summary>
     /// Provider name for logging/identification
     /// </summary>
     string ProviderName { get; }
@@ -83,5 +119,18 @@ public enum PaymentStatus
     Completed,
     Failed,
     Refunded,
+    Unknown
+}
+
+/// <summary>
+/// Razorpay payout status enum
+/// </summary>
+public enum RazorpayPayoutStatus
+{
+    Pending,
+    Processing,
+    Processed,
+    Failed,
+    Reversed,
     Unknown
 }

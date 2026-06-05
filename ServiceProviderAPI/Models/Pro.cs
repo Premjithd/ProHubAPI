@@ -55,6 +55,30 @@ public class Pro
     // Service Radius in kilometers (NEW) - default 25 km
     public int ServiceRadiusKm { get; set; } = 25;
 
+    // Payout / Bank Details
+    [StringLength(100)]
+    public string? BankAccountHolderName { get; set; }
+
+    [StringLength(50)]
+    public string? BankAccountNumber { get; set; }
+
+    [StringLength(20)]
+    public string? BankIfsc { get; set; }
+
+    [StringLength(100)]
+    public string? UpiVpa { get; set; }
+
+    // "Bank" or "UPI"
+    [StringLength(10)]
+    public string? PayoutMethod { get; set; }
+
+    // Razorpay payout infrastructure — set once, reused for all payouts
+    [StringLength(100)]
+    public string? RazorpayContactId { get; set; }
+
+    [StringLength(100)]
+    public string? RazorpayFundAccountId { get; set; }
+
     public ICollection<Service>? Services { get; set; }
     public ICollection<AdminUser>? AdminUsers { get; set; }
     public bool IsEmailVerified { get; set; }
