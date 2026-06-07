@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ServiceProviderAPI.Data;
 
@@ -11,9 +12,11 @@ using ServiceProviderAPI.Data;
 namespace ServiceProviderAPI.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260606232329_AddDistrictToPro")]
+    partial class AddDistrictToPro
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -801,9 +804,6 @@ namespace ServiceProviderAPI.Migrations
                         .HasColumnType("bit");
 
                     b.Property<bool>("IsPhoneVerified")
-                        .HasColumnType("bit");
-
-                    b.Property<bool>("IsProfileComplete")
                         .HasColumnType("bit");
 
                     b.Property<double?>("Latitude")

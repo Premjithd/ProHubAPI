@@ -84,7 +84,8 @@ public class AuthController : ControllerBase
             Role = "Pro",
             Id = pro.Id,
             FirstName = pro.ProName,
-            Email = pro.Email
+            Email = pro.Email,
+            IsProfileComplete = pro.IsProfileComplete
         };
     }
 
@@ -213,6 +214,7 @@ public class AuthController : ControllerBase
             ZipPostalCode = request.ZipPostalCode,
             Latitude = request.Latitude,
             Longitude = request.Longitude,
+            IsProfileComplete = true,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -248,6 +250,89 @@ public class AuthController : ControllerBase
             Id = pro.Id,
             FirstName = pro.ProName,
             Email = pro.Email
+        };
+    }
+
+    [HttpPost("pro/register/draft")]
+    public async Task<ActionResult<object>> RegisterProStep1(ProRegistrationStep1Request request)
+    {
+        if (await _context.Pros.AnyAsync(p => p.Email == request.Email))
+            return BadRequest(new { message = "This email is already registered. Please log in to complete or access your profile." });
+
+        var pro = new Pro
+        {
+            ProName = request.Name,
+            Email = request.Email,
+            PasswordHash = BC.HashPassword(request.Password),
+            PhoneNumber = request.PhoneNumber,
+            BusinessName = request.BusinessName,
+            IsProfileComplete = false,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        _context.Pros.Add(pro);
+        await _context.SaveChangesAsync();
+        _logger.LogInformation("Pro draft created for {Email}, ProId={ProId}", request.Email, pro.Id);
+
+        return Ok(new { proId = pro.Id });
+    }
+
+    [HttpPost("pro/register/complete/{proId:int}")]
+    [EnableRateLimiting("auth-register")]
+    public async Task<ActionResult<LoginResponse>> RegisterProStep2(int proId, ProRegistrationStep2Request request)
+    {
+        var pro = await _context.Pros.FindAsync(proId);
+        if (pro == null || pro.IsProfileComplete)
+            return NotFound(new { message = "Draft registration not found" });
+
+        var hasAnyAreas = await _context.ServiceAreas.AnyAsync();
+        if (hasAnyAreas && !string.IsNullOrWhiteSpace(request.Country))
+        {
+            var countryAllowed = await _serviceAreaService.IsCountryAllowedAsync(request.Country);
+            if (!countryAllowed)
+                return BadRequest(new { message = $"We are not currently operating in {request.Country}. Please check back soon as we expand our service areas." });
+        }
+
+        pro.HouseNameNumber = request.HouseNameNumber;
+        pro.Street1 = request.Street1;
+        pro.Street2 = request.Street2;
+        pro.City = request.City;
+        pro.District = request.District;
+        pro.State = request.State;
+        pro.Country = request.Country;
+        pro.ZipPostalCode = request.ZipPostalCode;
+        pro.Latitude = request.Latitude;
+        pro.Longitude = request.Longitude;
+        pro.IsProfileComplete = true;
+        pro.UpdatedAt = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync();
+
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(request.Country))
+            {
+                await _serviceAreaService.AutoEnrollProLocationAsync(
+                    request.Country, request.State, request.District, request.ZipPostalCode);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to auto-enroll pro location for pro {ProId}", pro.Id);
+        }
+
+        var (token, _) = _jwtService.GenerateToken(pro, "Pro");
+        var refresh = await CreateRefreshTokenAsync(pro.Id, "Pro");
+        return new LoginResponse
+        {
+            Token = token,
+            RefreshToken = refresh.Token,
+            Role = "Pro",
+            Id = pro.Id,
+            FirstName = pro.ProName,
+            Email = pro.Email,
+            IsProfileComplete = true
         };
     }
 

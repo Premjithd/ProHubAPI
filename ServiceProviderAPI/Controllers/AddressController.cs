@@ -117,8 +117,9 @@ namespace ServiceProviderAPI.Controllers
                     return BadRequest(new { message = "Place ID is required" });
                 }
 
-                // Build Nominatim API URL for details
-                var url = $"https://nominatim.openstreetmap.org/search?" +
+                // Nominatim /search does not accept place_id — use the dedicated
+                // details endpoint which looks up by place_id directly.
+                var url = $"https://nominatim.openstreetmap.org/details?" +
                     $"place_id={Uri.EscapeDataString(placeId)}" +
                     $"&format=json" +
                     $"&addressdetails=1";
