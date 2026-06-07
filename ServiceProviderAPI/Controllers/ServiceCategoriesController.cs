@@ -19,10 +19,21 @@ public class ServiceCategoriesController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<IEnumerable<ServiceCategory>>> GetCategories()
     {
-        return await _context.ServiceCategories
+        var categories = await _context.ServiceCategories
             .Where(c => c.IsActive)
             .OrderBy(c => c.Name)
             .ToListAsync();
+
+        var proCountByCategory = await _context.Services
+            .Where(s => s.ServiceCategoryId.HasValue && s.Pro!.IsProfileComplete)
+            .GroupBy(s => s.ServiceCategoryId!.Value)
+            .Select(g => new { CategoryId = g.Key, Count = g.Select(s => s.ProId).Distinct().Count() })
+            .ToDictionaryAsync(x => x.CategoryId, x => x.Count);
+
+        foreach (var cat in categories)
+            cat.ServiceCount = proCountByCategory.TryGetValue(cat.Id, out var count) ? count : 0;
+
+        return categories;
     }
 
     [HttpGet("{id}")]
