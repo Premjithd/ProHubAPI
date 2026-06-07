@@ -33,9 +33,15 @@ public class ProsController : ControllerBase
 
     [HttpGet("browse")]
     [AllowAnonymous]
-    public async Task<ActionResult<IEnumerable<object>>> BrowsePros(
+    public async Task<ActionResult<object>> BrowsePros(
         [FromQuery] string? search = null,
-        [FromQuery] int? categoryId = null)
+        [FromQuery] int? categoryId = null,
+        [FromQuery] string? country = null,
+        [FromQuery] string? state = null,
+        [FromQuery] string? district = null,
+        [FromQuery] string? pinCode = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10)
     {
         var query = _context.Pros.Include(p => p.Services).AsQueryable();
 
@@ -50,20 +56,44 @@ public class ProsController : ControllerBase
         }
 
         if (categoryId.HasValue)
-        {
             query = query.Where(p => p.Services.Any(s => s.ServiceCategoryId == categoryId.Value));
-        }
 
-        var pros = await query.ToListAsync();
+        if (!string.IsNullOrWhiteSpace(country))
+            query = query.Where(p => p.Country != null && p.Country.ToLower() == country.ToLower());
 
-        return Ok(pros.Select(p => new
+        if (!string.IsNullOrWhiteSpace(state))
+            query = query.Where(p => p.State != null && p.State.ToLower() == state.ToLower());
+
+        if (!string.IsNullOrWhiteSpace(district))
+            query = query.Where(p => p.District != null && p.District.ToLower() == district.ToLower());
+
+        if (!string.IsNullOrWhiteSpace(pinCode))
+            query = query.Where(p => p.ZipPostalCode != null && p.ZipPostalCode == pinCode);
+
+        var total = await query.CountAsync();
+        pageSize = Math.Clamp(pageSize, 1, 50);
+        page = Math.Max(1, page);
+
+        var pros = await query
+            .OrderBy(p => p.ProName)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return Ok(new
         {
-            p.Id, p.ProName, p.BusinessName,
-            p.City, p.State, p.Country,
-            p.Latitude, p.Longitude, p.ServiceRadiusKm,
-            p.IsEmailVerified,
-            Services = p.Services?.Select(s => new { s.Id, s.Name, s.Price })
-        }));
+            total,
+            page,
+            pageSize,
+            items = pros.Select(p => new
+            {
+                p.Id, p.ProName, p.BusinessName,
+                p.City, p.District, p.State, p.Country,
+                p.Latitude, p.Longitude, p.ServiceRadiusKm,
+                p.IsEmailVerified,
+                Services = p.Services?.Select(s => new { s.Id, s.Name, s.Price })
+            })
+        });
     }
 
     [HttpGet("{id}")]
@@ -150,6 +180,7 @@ public class ProsController : ControllerBase
         existingPro.Street1 = pro.Street1;
         existingPro.Street2 = pro.Street2;
         existingPro.City = pro.City;
+        existingPro.District = pro.District;
         existingPro.State = pro.State;
         existingPro.Country = pro.Country;
         existingPro.ZipPostalCode = pro.ZipPostalCode;
