@@ -1,148 +1,117 @@
-using Microsoft.Extensions.Configuration;
+using Microsoft.EntityFrameworkCore;
+using ServiceProviderAPI.Data;
 
 namespace ServiceProviderAPI.Services;
 
-/// <summary>
-/// Service for calculating platform commission, GST, and pro payout
-/// Phase 1C core business logic
-/// </summary>
 public interface IRateSplitService
 {
-    /// <summary>
-    /// Calculate rate split from the bid amount
-    /// </summary>
-    /// <param name="bidAmount">Total bid amount in ₹</param>
-    /// <returns>Rate split breakdown</returns>
-    RateSplit CalculateSplit(decimal bidAmount);
-
-    /// <summary>
-    /// Get current configuration
-    /// </summary>
-    RateSplitConfig GetConfig();
+    Task<RateSplit> CalculateSplitAsync(decimal bidAmount);
+    Task<RateSplitConfig> GetConfigAsync();
 }
 
 public class RateSplitService : IRateSplitService
 {
-    private readonly RateSplitConfig _config;
+    private readonly ApplicationDbContext _context;
     private readonly ILogger<RateSplitService> _logger;
 
-    public RateSplitService(IConfiguration configuration, ILogger<RateSplitService> logger)
+    private static readonly Dictionary<string, decimal> Defaults = new()
     {
-        _logger = logger;
-        
-        // Load from config or use defaults
-        _config = new RateSplitConfig
+        ["commission.user_percent"] = 10,
+        ["commission.pro_percent"]  = 10,
+        ["commission.gst_percent"]  = 18,
+        ["commission.min_fee"]      = 10,
+        ["commission.max_percent"]  = 20,
+    };
+
+    public RateSplitService(ApplicationDbContext context, ILogger<RateSplitService> logger)
+    {
+        _context = context;
+        _logger  = logger;
+    }
+
+    private async Task<RateSplitConfig> LoadConfigAsync()
+    {
+        var keys = Defaults.Keys.ToList();
+        var rows = await _context.AppSettings.AsNoTracking()
+            .Where(s => keys.Contains(s.Key))
+            .ToDictionaryAsync(s => s.Key, s => s.Value);
+
+        decimal Get(string key) =>
+            rows.TryGetValue(key, out var v) && decimal.TryParse(v, out var n) ? n : Defaults[key];
+
+        return new RateSplitConfig
         {
-            PlatformFeePercent = decimal.Parse(
-                configuration.GetSection("RateSplit:PlatformFeePercent").Value ?? "10"),
-            
-            GstPercent = decimal.Parse(
-                configuration.GetSection("RateSplit:GSTPercent").Value ?? "18"),
-            
-            MinPlatformFee = decimal.Parse(
-                configuration.GetSection("RateSplit:MinPlatformFee").Value ?? "10"),
-            
-            MaxPlatformFeePercent = decimal.Parse(
-                configuration.GetSection("RateSplit:MaxPlatformFeePercent").Value ?? "20")
+            UserCommissionPercent = Get("commission.user_percent"),
+            ProCommissionPercent  = Get("commission.pro_percent"),
+            GstPercent            = Get("commission.gst_percent"),
+            MinPlatformFee        = Get("commission.min_fee"),
+            MaxCommissionPercent  = Get("commission.max_percent"),
+        };
+    }
+
+    public async Task<RateSplitConfig> GetConfigAsync() => await LoadConfigAsync();
+
+    public async Task<RateSplit> CalculateSplitAsync(decimal bidAmount)
+    {
+        var cfg = await LoadConfigAsync();
+
+        // User-side: platform commission added on top of the bid amount
+        var userCommission = (bidAmount * cfg.UserCommissionPercent) / 100;
+        userCommission = Math.Max(userCommission, cfg.MinPlatformFee);
+        userCommission = Math.Min(userCommission, (bidAmount * cfg.MaxCommissionPercent) / 100);
+
+        var gstOnUserCommission = (userCommission * cfg.GstPercent) / 100;
+        var totalAmountUserPays = bidAmount + userCommission + gstOnUserCommission;
+
+        // Pro-side: commission deducted from what the pro receives
+        var proDeduction = (bidAmount * cfg.ProCommissionPercent) / 100;
+        var proPayout    = bidAmount - proDeduction;
+
+        var split = new RateSplit
+        {
+            BidAmount              = bidAmount,
+            UserCommission         = userCommission,
+            GstOnUserCommission    = gstOnUserCommission,
+            TotalAmountUserPays    = totalAmountUserPays,
+            ProDeduction           = proDeduction,
+            ProPayout              = proPayout,
+            TotalPlatformEarnings  = userCommission + proDeduction,
+            UserCommissionPercent  = cfg.UserCommissionPercent,
+            ProCommissionPercent   = cfg.ProCommissionPercent,
+            GstPercent             = cfg.GstPercent,
+            EffectiveUserChargePercent = decimal.Round((totalAmountUserPays / bidAmount - 1) * 100, 2),
+            EffectiveProPayoutPercent  = decimal.Round((proPayout / bidAmount) * 100, 2),
         };
 
-        _logger.LogInformation($"RateSplitService initialized: PlatformFee={_config.PlatformFeePercent}%, GST={_config.GstPercent}%");
-    }
+        _logger.LogInformation(
+            "Rate split: Bid=₹{Bid:F2}, UserPays=₹{UserPays:F2}, ProPayout=₹{ProPayout:F2}, PlatformEarns=₹{Platform:F2}",
+            bidAmount, totalAmountUserPays, proPayout, split.TotalPlatformEarnings);
 
-    public RateSplit CalculateSplit(decimal bidAmount)
-    {
-        try
-        {
-            // Calculate platform fee (with min/max bounds)
-            var platformFee = (bidAmount * _config.PlatformFeePercent) / 100;
-            platformFee = Math.Max(platformFee, _config.MinPlatformFee);  // Apply minimum
-            platformFee = Math.Min(platformFee, (bidAmount * _config.MaxPlatformFeePercent) / 100);  // Apply maximum
-
-            // Pro receives before GST
-            var proPayoutBeforeGst = bidAmount - platformFee;
-
-            // GST applied to platform fee only (common practice)
-            var gstOnPlatformFee = (platformFee * _config.GstPercent) / 100;
-
-            // Total platform cost (fee + GST)
-            var totalPlatformCost = platformFee + gstOnPlatformFee;
-
-            // Pro payout remains the same (they pay GST separately if registered)
-            var proPayoutAfterGst = proPayoutBeforeGst;
-
-            // Calculate effective rates
-            var effectivePlatformFeePercent = (totalPlatformCost / bidAmount) * 100;
-            var effectiveProPayoutPercent = (proPayoutAfterGst / bidAmount) * 100;
-
-            var split = new RateSplit
-            {
-                BidAmount = bidAmount,
-                PlatformFee = platformFee,
-                GstOnPlatformFee = gstOnPlatformFee,
-                TotalPlatformCost = totalPlatformCost,
-                ProPayout = proPayoutAfterGst,
-                PlatformFeePercent = _config.PlatformFeePercent,
-                GstPercent = _config.GstPercent,
-                EffectivePlatformFeePercent = decimal.Round(effectivePlatformFeePercent, 2),
-                EffectiveProPayoutPercent = decimal.Round(effectiveProPayoutPercent, 2)
-            };
-
-            _logger.LogInformation($"Rate split calculated: BidAmount=₹{bidAmount:F2}, ProPayout=₹{split.ProPayout:F2}, PlatformCost=₹{split.TotalPlatformCost:F2}");
-            return split;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError($"Error calculating rate split: {ex.Message}");
-            throw;
-        }
-    }
-
-    public RateSplitConfig GetConfig()
-    {
-        return _config;
+        return split;
     }
 }
 
-/// <summary>
-/// Configuration for rate calculations
-/// </summary>
 public class RateSplitConfig
 {
-    public decimal PlatformFeePercent { get; set; } = 10;  // Default 10%
-    public decimal GstPercent { get; set; } = 18;  // Indian GST: 18%
-    public decimal MinPlatformFee { get; set; } = 10;  // Minimum ₹10
-    public decimal MaxPlatformFeePercent { get; set; } = 20;  // Don't charge more than 20% even if calculation shows more
+    public decimal UserCommissionPercent { get; set; } = 10;
+    public decimal ProCommissionPercent  { get; set; } = 10;
+    public decimal GstPercent            { get; set; } = 18;
+    public decimal MinPlatformFee        { get; set; } = 10;
+    public decimal MaxCommissionPercent  { get; set; } = 20;
 }
 
-/// <summary>
-/// Result of rate split calculation
-/// </summary>
 public class RateSplit
 {
-    /// <summary>Original bid amount</summary>
-    public decimal BidAmount { get; set; }
-
-    /// <summary>Platform commission before GST</summary>
-    public decimal PlatformFee { get; set; }
-
-    /// <summary>GST amount on platform fee</summary>
-    public decimal GstOnPlatformFee { get; set; }
-
-    /// <summary>Total platform cost to consumer (fee + GST)</summary>
-    public decimal TotalPlatformCost { get; set; }
-
-    /// <summary>Amount pro receives</summary>
-    public decimal ProPayout { get; set; }
-
-    /// <summary>Configured platform fee percentage</summary>
-    public decimal PlatformFeePercent { get; set; }
-
-    /// <summary>Configured GST percentage</summary>
-    public decimal GstPercent { get; set; }
-
-    /// <summary>Effective platform fee % after all calculations</summary>
-    public decimal EffectivePlatformFeePercent { get; set; }
-
-    /// <summary>Effective pro payout % of bid</summary>
-    public decimal EffectiveProPayoutPercent { get; set; }
+    public decimal BidAmount             { get; set; }
+    public decimal UserCommission        { get; set; }
+    public decimal GstOnUserCommission   { get; set; }
+    public decimal TotalAmountUserPays   { get; set; }
+    public decimal ProDeduction          { get; set; }
+    public decimal ProPayout             { get; set; }
+    public decimal TotalPlatformEarnings { get; set; }
+    public decimal UserCommissionPercent { get; set; }
+    public decimal ProCommissionPercent  { get; set; }
+    public decimal GstPercent            { get; set; }
+    public decimal EffectiveUserChargePercent { get; set; }
+    public decimal EffectiveProPayoutPercent  { get; set; }
 }

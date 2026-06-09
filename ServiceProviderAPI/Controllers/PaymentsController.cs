@@ -146,10 +146,10 @@ public class PaymentsController : ControllerBase
             }
 
             // Calculate rate split
-            var rateSplit = _rateSplitService.CalculateSplit(request.Amount);
+            var rateSplit = await _rateSplitService.CalculateSplitAsync(request.Amount);
 
-            // Total amount user pays (bid + fees + tax)
-            var totalAmountToPay = request.Amount + rateSplit.PlatformFee + rateSplit.GstOnPlatformFee;
+            // Total amount user pays (bid + user commission + GST)
+            var totalAmountToPay = rateSplit.TotalAmountUserPays;
 
             // Create Razorpay order with total amount
             var orderResponse = await _paymentProvider.CreateOrderAsync(
@@ -169,8 +169,8 @@ public class PaymentsController : ControllerBase
                 JobId = request.JobId,
                 BidId = request.BidId,
                 UserId = userId,
-                Amount = totalAmountToPay,  // User pays the total amount including fees
-                PlatformFee = rateSplit.PlatformFee,
+                Amount = totalAmountToPay,
+                PlatformFee = rateSplit.UserCommission,
                 ProPayout = rateSplit.ProPayout,
                 RazorpayOrderId = orderResponse.OrderId,
                 ProviderId = "razorpay",
@@ -193,11 +193,13 @@ public class PaymentsController : ControllerBase
                 consumerName = $"{job.User?.FirstName} {job.User?.LastName}",
                 consumerEmail = job.User?.Email,
                 consumerPhone = job.User?.PhoneNumber,
-                platformFee = rateSplit.PlatformFee,
-                gstOnPlatformFee = rateSplit.GstOnPlatformFee,
+                userCommission = rateSplit.UserCommission,
+                gstOnUserCommission = rateSplit.GstOnUserCommission,
+                proDeduction = rateSplit.ProDeduction,
                 totalAmount = totalAmountToPay,
                 proPayout = rateSplit.ProPayout,
-                effectivePlatformFeePercent = rateSplit.EffectivePlatformFeePercent
+                effectiveUserChargePercent = rateSplit.EffectiveUserChargePercent,
+                effectiveProPayoutPercent = rateSplit.EffectiveProPayoutPercent
             });
         }
         catch (Exception ex)

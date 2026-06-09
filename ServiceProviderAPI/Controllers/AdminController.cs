@@ -23,6 +23,7 @@ public class AdminController : ControllerBase
     private readonly IPaymentProvider _paymentProvider;
     private readonly INotificationService _notificationService;
     private readonly IPayoutService _payoutService;
+    private readonly IRateSplitService _rateSplitService;
 
     public AdminController(
         ApplicationDbContext context,
@@ -33,7 +34,8 @@ public class AdminController : ControllerBase
         IHttpClientFactory httpClientFactory,
         IPaymentProvider paymentProvider,
         INotificationService notificationService,
-        IPayoutService payoutService)
+        IPayoutService payoutService,
+        IRateSplitService rateSplitService)
     {
         _context = context;
         _jwtService = jwtService;
@@ -44,6 +46,7 @@ public class AdminController : ControllerBase
         _paymentProvider = paymentProvider;
         _notificationService = notificationService;
         _payoutService = payoutService;
+        _rateSplitService = rateSplitService;
     }
 
     // Search for users by email or name
@@ -315,6 +318,55 @@ public class AdminController : ControllerBase
         {
             _logger.LogError($"Error resending invitation: {ex.Message}");
             return BadRequest(new { message = "Error resending invitation", error = ex.Message });
+        }
+    }
+
+    // GET: api/admin/commission-config
+    [HttpGet("commission-config")]
+    public async Task<ActionResult> GetCommissionConfig()
+    {
+        var config = await _rateSplitService.GetConfigAsync();
+        return Ok(config);
+    }
+
+    // PUT: api/admin/commission-config
+    [HttpPut("commission-config")]
+    public async Task<ActionResult> UpdateCommissionConfig([FromBody] UpdateCommissionConfigRequest request)
+    {
+        if (request.UserCommissionPercent < 0 || request.UserCommissionPercent > 50)
+            return BadRequest(new { message = "User commission must be between 0% and 50%." });
+        if (request.ProCommissionPercent < 0 || request.ProCommissionPercent > 50)
+            return BadRequest(new { message = "Pro commission must be between 0% and 50%." });
+        if (request.GstPercent < 0 || request.GstPercent > 30)
+            return BadRequest(new { message = "GST percent must be between 0% and 30%." });
+        if (request.MinPlatformFee < 0 || request.MinPlatformFee > 1000)
+            return BadRequest(new { message = "Minimum platform fee must be between ₹0 and ₹1000." });
+        if (request.MaxCommissionPercent < request.UserCommissionPercent || request.MaxCommissionPercent > 50)
+            return BadRequest(new { message = "Max commission cap must be ≥ user commission % and ≤ 50%." });
+
+        await UpsertSettingAsync("commission.user_percent", request.UserCommissionPercent.ToString());
+        await UpsertSettingAsync("commission.pro_percent",  request.ProCommissionPercent.ToString());
+        await UpsertSettingAsync("commission.gst_percent",  request.GstPercent.ToString());
+        await UpsertSettingAsync("commission.min_fee",      request.MinPlatformFee.ToString());
+        await UpsertSettingAsync("commission.max_percent",  request.MaxCommissionPercent.ToString());
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation(
+            "Commission config updated by admin: User={UserPct}%, Pro={ProPct}%, GST={GstPct}%",
+            request.UserCommissionPercent, request.ProCommissionPercent, request.GstPercent);
+
+        return Ok(new { message = "Commission configuration updated successfully." });
+    }
+
+    private async Task UpsertSettingAsync(string key, string value)
+    {
+        var setting = await _context.AppSettings.FirstOrDefaultAsync(s => s.Key == key);
+        if (setting == null)
+            _context.AppSettings.Add(new AppSetting { Key = key, Value = value });
+        else
+        {
+            setting.Value = value;
+            setting.UpdatedAt = DateTime.UtcNow;
         }
     }
 
@@ -711,4 +763,22 @@ public class ResolveDisputeRequest
 
     [JsonPropertyName("notes")]
     public string? Notes { get; set; }
+}
+
+public class UpdateCommissionConfigRequest
+{
+    [JsonPropertyName("userCommissionPercent")]
+    public decimal UserCommissionPercent { get; set; }
+
+    [JsonPropertyName("proCommissionPercent")]
+    public decimal ProCommissionPercent { get; set; }
+
+    [JsonPropertyName("gstPercent")]
+    public decimal GstPercent { get; set; }
+
+    [JsonPropertyName("minPlatformFee")]
+    public decimal MinPlatformFee { get; set; }
+
+    [JsonPropertyName("maxCommissionPercent")]
+    public decimal MaxCommissionPercent { get; set; }
 }
