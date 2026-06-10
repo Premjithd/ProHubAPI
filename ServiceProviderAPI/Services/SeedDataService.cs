@@ -287,12 +287,11 @@ public class SeedDataService
                     Email = "vijay.pro@example.com",
                     PhoneNumber = "+91 99876 12345",
                     BusinessName = "Vijay Plumbing Services",
-                    Latitude = 28.6139d,
-                    Longitude = 77.2090d,
                     ServiceRadiusKm = 25,
                     IsEmailVerified = true,
                     IsPhoneVerified = true,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = DateTime.UtcNow,
+                    Address = new Models.Address { AddressType = "Pro", City = "New Delhi", State = "Delhi", Country = "India", Latitude = 28.6139d, Longitude = 77.2090d }
                 },
                 new Pro
                 {
@@ -300,12 +299,11 @@ public class SeedDataService
                     Email = "ramesh.pro@example.com",
                     PhoneNumber = "+91 99876 12346",
                     BusinessName = "Ramesh Electrical Works",
-                    Latitude = 28.6155d,
-                    Longitude = 77.2100d,
                     ServiceRadiusKm = 30,
                     IsEmailVerified = true,
                     IsPhoneVerified = true,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = DateTime.UtcNow,
+                    Address = new Models.Address { AddressType = "Pro", City = "New Delhi", State = "Delhi", Country = "India", Latitude = 28.6155d, Longitude = 77.2100d }
                 },
                 new Pro
                 {
@@ -313,12 +311,11 @@ public class SeedDataService
                     Email = "suresh.pro@example.com",
                     PhoneNumber = "+91 99876 12347",
                     BusinessName = "Suresh Carpentry Solutions",
-                    Latitude = 28.6200d,
-                    Longitude = 77.2050d,
                     ServiceRadiusKm = 20,
                     IsEmailVerified = true,
                     IsPhoneVerified = true,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = DateTime.UtcNow,
+                    Address = new Models.Address { AddressType = "Pro", City = "New Delhi", State = "Delhi", Country = "India", Latitude = 28.6200d, Longitude = 77.2050d }
                 },
                 new Pro
                 {
@@ -326,12 +323,11 @@ public class SeedDataService
                     Email = "anita.pro@example.com",
                     PhoneNumber = "+91 99876 12348",
                     BusinessName = "Anita Interior Painting",
-                    Latitude = 28.6100d,
-                    Longitude = 77.2110d,
                     ServiceRadiusKm = 35,
                     IsEmailVerified = true,
                     IsPhoneVerified = true,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = DateTime.UtcNow,
+                    Address = new Models.Address { AddressType = "Pro", City = "New Delhi", State = "Delhi", Country = "India", Latitude = 28.6100d, Longitude = 77.2110d }
                 },
                 new Pro
                 {
@@ -339,12 +335,11 @@ public class SeedDataService
                     Email = "raj.pro@example.com",
                     PhoneNumber = "+91 99876 12349",
                     BusinessName = "Raj Cleaning Services",
-                    Latitude = 28.6080d,
-                    Longitude = 77.2120d,
                     ServiceRadiusKm = 40,
                     IsEmailVerified = true,
                     IsPhoneVerified = true,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = DateTime.UtcNow,
+                    Address = new Models.Address { AddressType = "Pro", City = "New Delhi", State = "Delhi", Country = "India", Latitude = 28.6080d, Longitude = 77.2120d }
                 },
             };
 
@@ -367,17 +362,10 @@ public class SeedDataService
                     Budget = "2500",
                     EstimatedBudget = 2500.00m,
                     Timeline = "asap",
-                    // Structured Address Fields
-                    Latitude = 28.6139d,
-                    Longitude = 77.2090d,
-                    ServiceAddressStreet1 = "123 Main Street",
-                    ServiceAddressCity = "New Delhi",
-                    ServiceAddressState = "Delhi",
-                    ServiceAddressPIN = "110001",
-                    ServiceAddressCountry = "India",
                     ContactPersonName = consumerUser?.FirstName,
                     ContactPersonPhone = consumerUser?.PhoneNumber,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = DateTime.UtcNow,
+                    ServiceAddress = new Models.Address { AddressType = "Job", Street1 = "123 Main Street", City = "New Delhi", State = "Delhi", ZipPostalCode = "110001", Country = "India", Latitude = 28.6139d, Longitude = 77.2090d }
                 },
                 new Job
                 {
@@ -389,16 +377,10 @@ public class SeedDataService
                     Budget = "1500",
                     EstimatedBudget = 1500.00m,
                     Timeline = "1-week",
-                    Latitude = 28.6139d,
-                    Longitude = 77.2090d,
-                    ServiceAddressStreet1 = "123 Main Street",
-                    ServiceAddressCity = "New Delhi",
-                    ServiceAddressState = "Delhi",
-                    ServiceAddressPIN = "110001",
-                    ServiceAddressCountry = "India",
                     ContactPersonName = consumerUser?.FirstName,
                     ContactPersonPhone = consumerUser?.PhoneNumber,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = DateTime.UtcNow,
+                    ServiceAddress = new Models.Address { AddressType = "Job", Street1 = "123 Main Street", City = "New Delhi", State = "Delhi", ZipPostalCode = "110001", Country = "India", Latitude = 28.6139d, Longitude = 77.2090d }
                 },
                 new Job
                 {
@@ -410,16 +392,10 @@ public class SeedDataService
                     Budget = "5000",
                     EstimatedBudget = 5000.00m,
                     Timeline = "1-month",
-                    Latitude = 28.6139d,
-                    Longitude = 77.2090d,
-                    ServiceAddressStreet1 = "123 Main Street",
-                    ServiceAddressCity = "New Delhi",
-                    ServiceAddressState = "Delhi",
-                    ServiceAddressPIN = "110001",
-                    ServiceAddressCountry = "India",
                     ContactPersonName = consumerUser?.FirstName,
                     ContactPersonPhone = consumerUser?.PhoneNumber,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = DateTime.UtcNow,
+                    ServiceAddress = new Models.Address { AddressType = "Job", Street1 = "123 Main Street", City = "New Delhi", State = "Delhi", ZipPostalCode = "110001", Country = "India", Latitude = 28.6139d, Longitude = 77.2090d }
                 },
             };
 

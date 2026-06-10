@@ -32,7 +32,7 @@ public class ServicesController : ControllerBase
         pageSize = Math.Clamp(pageSize, 1, 200);
 
         var query = _context.Services
-            .Include(s => s.Pro)
+            .Include(s => s.Pro).ThenInclude(p => p!.Address)
             .Include(s => s.ServiceCategory)
             .AsQueryable();
 
@@ -47,8 +47,8 @@ public class ServicesController : ControllerBase
                 (s.Pro != null && s.Pro.ProName != null && s.Pro.ProName.Contains(search)));
 
         if (!string.IsNullOrEmpty(city))
-            query = query.Where(s => s.Pro != null && s.Pro.City != null &&
-                s.Pro.City.Contains(city));
+            query = query.Where(s => s.Pro != null && s.Pro.Address != null &&
+                s.Pro.Address.City != null && s.Pro.Address.City.Contains(city));
 
         query = sortBy switch
         {
@@ -71,8 +71,8 @@ public class ServicesController : ControllerBase
                 ProId             = s.ProId,
                 ProName           = s.Pro != null ? s.Pro.ProName : null,
                 BusinessName      = s.Pro != null ? s.Pro.BusinessName : null,
-                City              = s.Pro != null ? s.Pro.City : null,
-                State             = s.Pro != null ? s.Pro.State : null,
+                City              = s.Pro != null && s.Pro.Address != null ? s.Pro.Address.City : null,
+                State             = s.Pro != null && s.Pro.Address != null ? s.Pro.Address.State : null,
                 ServiceCategoryId = s.ServiceCategoryId,
                 CategoryName      = s.ServiceCategory != null ? s.ServiceCategory.Name : null,
                 CategoryIcon      = s.ServiceCategory != null ? s.ServiceCategory.Icon : null,
@@ -97,8 +97,8 @@ public class ServicesController : ControllerBase
                 ProId             = s.ProId,
                 ProName           = s.Pro != null ? s.Pro.ProName : null,
                 BusinessName      = s.Pro != null ? s.Pro.BusinessName : null,
-                City              = s.Pro != null ? s.Pro.City : null,
-                State             = s.Pro != null ? s.Pro.State : null,
+                City              = s.Pro != null && s.Pro.Address != null ? s.Pro.Address.City : null,
+                State             = s.Pro != null && s.Pro.Address != null ? s.Pro.Address.State : null,
                 ServiceCategoryId = s.ServiceCategoryId,
                 CategoryName      = s.ServiceCategory != null ? s.ServiceCategory.Name : null,
                 CategoryIcon      = s.ServiceCategory != null ? s.ServiceCategory.Icon : null,

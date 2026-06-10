@@ -57,6 +57,7 @@ public class JobsController : ControllerBase
                 .Include(j => j.User)
                 .Include(j => j.AssignedPro)
                 .Include(j => j.Category)
+                .Include(j => j.ServiceAddress)
                 .AsQueryable();
 
             if (!string.IsNullOrEmpty(status))
@@ -102,6 +103,7 @@ public class JobsController : ControllerBase
                 .Where(j => j.AssignedProId == proId)
                 .Include(j => j.User)
                 .Include(j => j.Category)
+                .Include(j => j.ServiceAddress)
                 .OrderByDescending(j => j.CreatedAt)
                 .ToListAsync();
 
@@ -133,9 +135,11 @@ public class JobsController : ControllerBase
             // Load the calling pro's location
             var proIdStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             int.TryParse(proIdStr, out int proId);
-            var pro = proId > 0 ? await _context.Pros.FindAsync(proId) : null;
+            var pro = proId > 0
+                ? await _context.Pros.Include(p => p.Address).FirstOrDefaultAsync(p => p.Id == proId)
+                : null;
 
-            bool hasProLocation = pro?.Latitude != null && pro?.Longitude != null;
+            bool hasProLocation = pro?.Address?.Latitude != null && pro?.Address?.Longitude != null;
             bool applyProximity = hasProLocation && filterRadiusKm.HasValue;
             double radiusKm = filterRadiusKm.HasValue ? (double)filterRadiusKm.Value : 0;
 
@@ -144,6 +148,7 @@ public class JobsController : ControllerBase
                 .Where(j => j.Status == "Open" && (j.AssignedProId == null || j.AssignedProId == 0))
                 .Include(j => j.User)
                 .Include(j => j.Category)
+                .Include(j => j.ServiceAddress)
                 .AsQueryable();
 
             if (categoryId.HasValue)
@@ -160,8 +165,8 @@ public class JobsController : ControllerBase
             var withDistance = allJobs.Select(j =>
             {
                 double? dist = null;
-                if (hasProLocation && j.Latitude.HasValue && j.Longitude.HasValue)
-                    dist = Math.Round(HaversineKm(pro!.Latitude!.Value, pro!.Longitude!.Value, j.Latitude.Value, j.Longitude.Value), 1);
+                if (hasProLocation && j.ServiceAddress?.Latitude.HasValue == true && j.ServiceAddress?.Longitude.HasValue == true)
+                    dist = Math.Round(HaversineKm(pro!.Address!.Latitude!.Value, pro!.Address!.Longitude!.Value, j.ServiceAddress.Latitude!.Value, j.ServiceAddress.Longitude!.Value), 1);
                 return (Job: j, DistanceKm: dist);
             }).ToList();
 
@@ -190,18 +195,22 @@ public class JobsController : ControllerBase
                     Category = x.Job.Category == null ? null : new { x.Job.Category.Id, x.Job.Category.Name, x.Job.Category.Icon },
                     x.Job.Description,
                     x.Job.Location,
-                    x.Job.ServiceAddressCity,
-                    x.Job.ServiceAddressState,
-                    x.Job.ServiceAddressCountry,
-                    x.Job.ServiceAddressPIN,
+                    ServiceAddressHouse = x.Job.ServiceAddress != null ? x.Job.ServiceAddress.HouseNameNumber : null,
+                    ServiceAddressStreet1 = x.Job.ServiceAddress != null ? x.Job.ServiceAddress.Street1 : null,
+                    ServiceAddressStreet2 = x.Job.ServiceAddress != null ? x.Job.ServiceAddress.Street2 : null,
+                    ServiceAddressCity = x.Job.ServiceAddress != null ? x.Job.ServiceAddress.City : null,
+                    ServiceAddressDistrict = x.Job.ServiceAddress != null ? x.Job.ServiceAddress.District : null,
+                    ServiceAddressState = x.Job.ServiceAddress != null ? x.Job.ServiceAddress.State : null,
+                    ServiceAddressCountry = x.Job.ServiceAddress != null ? x.Job.ServiceAddress.Country : null,
+                    ServiceAddressPIN = x.Job.ServiceAddress != null ? x.Job.ServiceAddress.ZipPostalCode : null,
                     x.Job.Budget,
                     x.Job.EstimatedBudget,
                     x.Job.Timeline,
                     x.Job.Status,
                     x.Job.IsBid,
                     x.Job.AssignedProId,
-                    x.Job.Latitude,
-                    x.Job.Longitude,
+                    Latitude = x.Job.ServiceAddress != null ? x.Job.ServiceAddress.Latitude : (double?)null,
+                    Longitude = x.Job.ServiceAddress != null ? x.Job.ServiceAddress.Longitude : (double?)null,
                     x.Job.JobPhases,
                     x.Job.Attachments,
                     x.Job.CreatedAt,
@@ -228,6 +237,28 @@ public class JobsController : ControllerBase
             return StatusCode(500, new { message = "Error retrieving available jobs", error = ex.Message });
         }
     }
+
+    private static object SafeJob(Job j) => new
+    {
+        j.Id, j.UserId, j.Title, j.CategoryId,
+        Category = j.Category == null ? null : new { j.Category.Id, j.Category.Name, j.Category.Icon },
+        j.Description, j.Location, j.Budget, j.EstimatedBudget, j.Timeline,
+        j.Attachments, j.Status, j.IsBid, j.AssignedProId, j.JobPhases,
+        j.ContactPersonName, j.ContactPersonPhone,
+        j.CreatedAt, j.UpdatedAt,
+        ServiceAddressHouse = j.ServiceAddress != null ? j.ServiceAddress.HouseNameNumber : null,
+        ServiceAddressStreet1 = j.ServiceAddress != null ? j.ServiceAddress.Street1 : null,
+        ServiceAddressStreet2 = j.ServiceAddress != null ? j.ServiceAddress.Street2 : null,
+        ServiceAddressCity = j.ServiceAddress != null ? j.ServiceAddress.City : null,
+        ServiceAddressDistrict = j.ServiceAddress != null ? j.ServiceAddress.District : null,
+        ServiceAddressState = j.ServiceAddress != null ? j.ServiceAddress.State : null,
+        ServiceAddressCountry = j.ServiceAddress != null ? j.ServiceAddress.Country : null,
+        ServiceAddressPIN = j.ServiceAddress != null ? j.ServiceAddress.ZipPostalCode : null,
+        Latitude = j.ServiceAddress != null ? j.ServiceAddress.Latitude : (double?)null,
+        Longitude = j.ServiceAddress != null ? j.ServiceAddress.Longitude : (double?)null,
+        User = j.User == null ? null : new { j.User.Id, j.User.FirstName, j.User.LastName, j.User.Email },
+        AssignedPro = j.AssignedPro == null ? null : new { j.AssignedPro.Id, j.AssignedPro.ProName, j.AssignedPro.BusinessName }
+    };
 
     // Haversine formula — returns distance in kilometres between two lat/lng points
     private static double HaversineKm(double lat1, double lon1, double lat2, double lon2)
@@ -369,12 +400,13 @@ public class JobsController : ControllerBase
                 .Include(j => j.User)
                 .Include(j => j.AssignedPro)
                 .Include(j => j.Category)
+                .Include(j => j.ServiceAddress)
                 .FirstOrDefaultAsync(j => j.Id == id);
 
             if (job == null)
                 return NotFound("Job not found");
 
-            return Ok(job);
+            return Ok(SafeJob(job));
         }
         catch (Exception ex)
         {
@@ -436,6 +468,23 @@ public class JobsController : ControllerBase
                 }
             }
 
+            var serviceAddress = new Address
+            {
+                AddressType = "Job",
+                HouseNameNumber = request.ServiceAddressHouse,
+                Street1 = request.ServiceAddressStreet1,
+                City = request.ServiceAddressCity,
+                District = request.ServiceAddressDistrict,
+                State = request.ServiceAddressState,
+                Country = request.ServiceAddressCountry,
+                ZipPostalCode = request.ServiceAddressPIN,
+                Latitude = request.Latitude,
+                Longitude = request.Longitude,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            _context.Addresses.Add(serviceAddress);
+
             var job = new Job
             {
                 UserId = userId,
@@ -445,17 +494,9 @@ public class JobsController : ControllerBase
                 Location = request.ServiceAddressCity ?? request.Location ?? string.Empty,
                 Budget = request.Budget ?? (request.EstimatedBudget ?? 0).ToString(),
                 EstimatedBudget = request.EstimatedBudget,
-                Latitude = request.Latitude,
-                Longitude = request.Longitude,
                 Timeline = request.Timeline,
                 Attachments = request.Attachments,
-                ServiceAddressHouse = request.ServiceAddressHouse,
-                ServiceAddressStreet1 = request.ServiceAddressStreet1,
-                ServiceAddressCity = request.ServiceAddressCity,
-                ServiceAddressDistrict = request.ServiceAddressDistrict,
-                ServiceAddressState = request.ServiceAddressState,
-                ServiceAddressCountry = request.ServiceAddressCountry,
-                ServiceAddressPIN = request.ServiceAddressPIN,
+                ServiceAddress = serviceAddress,
                 ContactPersonName = request.ContactPersonName,
                 ContactPersonPhone = request.ContactPersonPhone,
                 Status = "Open",
@@ -500,7 +541,7 @@ public class JobsController : ControllerBase
                 }
             }
 
-            return CreatedAtAction(nameof(GetJob), new { id = job.Id }, job);
+            return CreatedAtAction(nameof(GetJob), new { id = job.Id }, SafeJob(job));
         }
         catch (DbUpdateException dbEx)
         {
@@ -522,7 +563,7 @@ public class JobsController : ControllerBase
         try
         {
             var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
-            var job = await _context.Jobs.FindAsync(id);
+            var job = await _context.Jobs.Include(j => j.ServiceAddress).FirstOrDefaultAsync(j => j.Id == id);
 
             if (job == null)
                 return NotFound("Job not found");
@@ -546,7 +587,7 @@ public class JobsController : ControllerBase
             _context.Jobs.Update(job);
             await _context.SaveChangesAsync();
 
-            return Ok(job);
+            return Ok(SafeJob(job));
         }
         catch (Exception ex)
         {
@@ -596,7 +637,7 @@ public class JobsController : ControllerBase
             if (proId == 0)
                 return Unauthorized("Pro user not found");
 
-            var job = await _context.Jobs.FindAsync(id);
+            var job = await _context.Jobs.Include(j => j.ServiceAddress).FirstOrDefaultAsync(j => j.Id == id);
 
             if (job == null)
                 return NotFound("Job not found");
@@ -628,7 +669,7 @@ public class JobsController : ControllerBase
             job.UpdatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
 
-            return Ok(job);
+            return Ok(SafeJob(job));
         }
         catch (Exception ex)
         {

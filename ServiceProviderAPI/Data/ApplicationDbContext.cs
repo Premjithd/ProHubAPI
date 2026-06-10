@@ -10,6 +10,7 @@ public class ApplicationDbContext : DbContext
     {
     }
 
+    public DbSet<Address> Addresses { get; set; }
     public DbSet<Pro> Pros { get; set; }
     public DbSet<User> Users { get; set; }
     public DbSet<Service> Services { get; set; }
@@ -38,6 +39,27 @@ public class ApplicationDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<User>()
+            .HasOne(u => u.Address)
+            .WithMany()
+            .HasForeignKey(u => u.AddressId)
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<Pro>()
+            .HasOne(p => p.Address)
+            .WithMany()
+            .HasForeignKey(p => p.AddressId)
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<Job>()
+            .HasOne(j => j.ServiceAddress)
+            .WithMany()
+            .HasForeignKey(j => j.ServiceAddressId)
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.SetNull);
 
         modelBuilder.Entity<AdminUser>()
             .HasKey(au => au.Id);
@@ -82,6 +104,7 @@ public class ApplicationDbContext : DbContext
             .HasOne(j => j.AssignedPro)
             .WithMany()
             .HasForeignKey(j => j.AssignedProId)
+            .IsRequired(false)
             .OnDelete(DeleteBehavior.SetNull);
 
         modelBuilder.Entity<JobBid>()

@@ -21,44 +21,14 @@ public class Job
 
     [Required]
     [StringLength(150)]
-    public string? Location { get; set; }  // Kept for backward compatibility
+    public string? Location { get; set; }  // Kept for backward compatibility (populated from City)
 
-    // Structured Service Address (NEW)
-    [StringLength(100)]
-    public string? ServiceAddressHouse { get; set; }
-
-    [StringLength(255)]
-    public string? ServiceAddressStreet1 { get; set; }
-
-    [StringLength(255)]
-    public string? ServiceAddressStreet2 { get; set; }
-
-    [StringLength(100)]
-    public string? ServiceAddressCity { get; set; }
-
-    [StringLength(100)]
-    public string? ServiceAddressDistrict { get; set; }
-
-    [StringLength(100)]
-    public string? ServiceAddressState { get; set; }
-
-    [StringLength(100)]
-    public string? ServiceAddressCountry { get; set; }
-
-    [StringLength(20)]
-    public string? ServiceAddressPIN { get; set; }
-
-    // Contact Person for Service Request (NEW)
+    // Contact Person for Service Request
     [StringLength(100)]
     public string? ContactPersonName { get; set; }
 
     [Phone]
     public string? ContactPersonPhone { get; set; }
-
-    // Geolocation (NEW)
-    public double? Latitude { get; set; }
-
-    public double? Longitude { get; set; }
 
     // Budget (UPDATED to decimal INR)
     [Column(TypeName = "decimal(18,2)")]
@@ -66,7 +36,7 @@ public class Job
 
     [Required]
     [StringLength(50)]
-    public string? Budget { get; set; }  // Kept for backward compatibility, will be deprecated
+    public string? Budget { get; set; }  // Kept for backward compatibility
 
     [Required]
     [StringLength(50)]
@@ -76,14 +46,17 @@ public class Job
     public string? Attachments { get; set; }  // JSON array of file URLs
 
     [StringLength(20)]
-    public string? Status { get; set; } = "Open";  // "Open", "Bid Accepted", "Payment Made", "Pro Confirmed", "In Progress", "Completion Submitted", "Completed", "Cancelled"
+    public string? Status { get; set; } = "Open";
 
-    public bool IsBid { get; set; } = false;  // True if job has received at least one bid
+    public bool IsBid { get; set; } = false;
 
-    public int? AssignedProId { get; set; }  // ID of the Pro assigned to this job
+    public int? AssignedProId { get; set; }
 
     [StringLength(5000)]
     public string? JobPhases { get; set; }  // JSON array of phases with completion status
+
+    // Service address (normalized to Addresses table)
+    public int? ServiceAddressId { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
@@ -98,4 +71,7 @@ public class Job
 
     [ForeignKey("CategoryId")]
     public ServiceCategory? Category { get; set; }
+
+    [ForeignKey("ServiceAddressId")]
+    public Address? ServiceAddress { get; set; }
 }

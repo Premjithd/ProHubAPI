@@ -144,6 +144,24 @@ public class AuthController : ControllerBase
         if (await _context.Users.AnyAsync(u => u.Email == request.Email))
             return BadRequest(new { message = "Email already registered" });
 
+        var address = new Address
+        {
+            AddressType = "User",
+            HouseNameNumber = request.HouseNameNumber,
+            Street1 = request.Street1,
+            Street2 = request.Street2,
+            City = request.City,
+            District = request.District,
+            State = request.State,
+            Country = request.Country,
+            ZipPostalCode = request.ZipPostalCode,
+            Latitude = request.Latitude,
+            Longitude = request.Longitude,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        _context.Addresses.Add(address);
+
         var user = new User
         {
             FirstName = request.FirstName,
@@ -151,15 +169,7 @@ public class AuthController : ControllerBase
             Email = request.Email,
             PasswordHash = BC.HashPassword(request.Password),
             PhoneNumber = request.PhoneNumber,
-            HouseNameNumber = request.HouseNameNumber,
-            Street1 = request.Street1,
-            Street2 = request.Street2,
-            City = request.City,
-            State = request.State,
-            Country = request.Country,
-            ZipPostalCode = request.ZipPostalCode,
-            Latitude = request.Latitude,
-            Longitude = request.Longitude,
+            Address = address,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -197,13 +207,9 @@ public class AuthController : ControllerBase
                 return BadRequest(new { message = $"We are not currently operating in {request.Country}. Please check back soon as we expand our service areas." });
         }
 
-        var pro = new Pro
+        var proAddress = new Address
         {
-            ProName = request.Name,
-            Email = request.Email,
-            PasswordHash = BC.HashPassword(request.Password),
-            PhoneNumber = request.PhoneNumber,
-            BusinessName = request.BusinessName,
+            AddressType = "Pro",
             HouseNameNumber = request.HouseNameNumber,
             Street1 = request.Street1,
             Street2 = request.Street2,
@@ -214,6 +220,19 @@ public class AuthController : ControllerBase
             ZipPostalCode = request.ZipPostalCode,
             Latitude = request.Latitude,
             Longitude = request.Longitude,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        _context.Addresses.Add(proAddress);
+
+        var pro = new Pro
+        {
+            ProName = request.Name,
+            Email = request.Email,
+            PasswordHash = BC.HashPassword(request.Password),
+            PhoneNumber = request.PhoneNumber,
+            BusinessName = request.BusinessName,
+            Address = proAddress,
             IsProfileComplete = true,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -294,16 +313,27 @@ public class AuthController : ControllerBase
                 return BadRequest(new { message = $"We are not currently operating in {request.Country}. Please check back soon as we expand our service areas." });
         }
 
-        pro.HouseNameNumber = request.HouseNameNumber;
-        pro.Street1 = request.Street1;
-        pro.Street2 = request.Street2;
-        pro.City = request.City;
-        pro.District = request.District;
-        pro.State = request.State;
-        pro.Country = request.Country;
-        pro.ZipPostalCode = request.ZipPostalCode;
-        pro.Latitude = request.Latitude;
-        pro.Longitude = request.Longitude;
+        // Create or update address for the pro
+        var step2Address = new Address
+        {
+            AddressType = "Pro",
+            HouseNameNumber = request.HouseNameNumber,
+            Street1 = request.Street1,
+            Street2 = request.Street2,
+            City = request.City,
+            District = request.District,
+            State = request.State,
+            Country = request.Country,
+            ZipPostalCode = request.ZipPostalCode,
+            Latitude = request.Latitude,
+            Longitude = request.Longitude,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        _context.Addresses.Add(step2Address);
+        await _context.SaveChangesAsync();
+
+        pro.AddressId = step2Address.Id;
         pro.IsProfileComplete = true;
         pro.UpdatedAt = DateTime.UtcNow;
 

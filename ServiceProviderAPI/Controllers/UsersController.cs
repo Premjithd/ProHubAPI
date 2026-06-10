@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ServiceProviderAPI.Data;
+using ServiceProviderAPI.DTOs;
 using ServiceProviderAPI.Models;
 using BC = BCrypt.Net.BCrypt;
 
@@ -23,7 +24,7 @@ public class UsersController : ControllerBase
     [Authorize(Roles = "Admin")]
     public async Task<ActionResult<IEnumerable<object>>> GetUsers()
     {
-        var users = await _context.Users.ToListAsync();
+        var users = await _context.Users.Include(u => u.Address).ToListAsync();
         return Ok(users.Select(u => SafeUser(u)));
     }
 
@@ -38,7 +39,7 @@ public class UsersController : ControllerBase
         if (!isAdmin && callerId != id)
             return Forbid();
 
-        var user = await _context.Users.FindAsync(id);
+        var user = await _context.Users.Include(u => u.Address).FirstOrDefaultAsync(u => u.Id == id);
         if (user == null) return NotFound();
 
         return Ok(SafeUser(user));
@@ -47,8 +48,17 @@ public class UsersController : ControllerBase
     private static object SafeUser(User u) => new
     {
         u.Id, u.FirstName, u.LastName, u.Email, u.PhoneNumber,
-        u.HouseNameNumber, u.Street1, u.Street2, u.City, u.State,
-        u.Country, u.ZipPostalCode, u.CreatedAt, u.UpdatedAt,
+        HouseNameNumber = u.Address != null ? u.Address.HouseNameNumber : null,
+        Street1 = u.Address != null ? u.Address.Street1 : null,
+        Street2 = u.Address != null ? u.Address.Street2 : null,
+        City = u.Address != null ? u.Address.City : null,
+        District = u.Address != null ? u.Address.District : null,
+        State = u.Address != null ? u.Address.State : null,
+        Country = u.Address != null ? u.Address.Country : null,
+        ZipPostalCode = u.Address != null ? u.Address.ZipPostalCode : null,
+        Latitude = u.Address != null ? u.Address.Latitude : (double?)null,
+        Longitude = u.Address != null ? u.Address.Longitude : (double?)null,
+        u.CreatedAt, u.UpdatedAt,
         u.IsEmailVerified, u.IsPhoneVerified, u.UpiVpa
     };
 
@@ -67,48 +77,56 @@ public class UsersController : ControllerBase
     }
 
     [HttpPut("{id}")]
-    [Authorize(Roles = "User")]
-    public async Task<ActionResult<User>> UpdateUser(int id, User user)
+    [Authorize(Roles = "User,Admin")]
+    public async Task<ActionResult<object>> UpdateUser(int id, [FromBody] UpdateUserRequest request)
     {
-        if (id != user.Id)
-        {
+        if (id != request.Id)
             return BadRequest();
-        }
 
-        var existingUser = await _context.Users.FindAsync(id);
+        var existingUser = await _context.Users.Include(u => u.Address).FirstOrDefaultAsync(u => u.Id == id);
         if (existingUser == null)
-        {
             return NotFound();
-        }
 
-        existingUser.FirstName = user.FirstName;
-        existingUser.LastName = user.LastName;
+        if (request.FirstName != null) existingUser.FirstName = request.FirstName;
+        if (request.LastName != null) existingUser.LastName = request.LastName;
 
-        if (!string.Equals(existingUser.Email, user.Email, StringComparison.OrdinalIgnoreCase))
+        if (request.Email != null && !string.Equals(existingUser.Email, request.Email, StringComparison.OrdinalIgnoreCase))
         {
-            existingUser.Email = user.Email;
+            existingUser.Email = request.Email;
             existingUser.IsEmailVerified = false;
         }
 
-        if (existingUser.PhoneNumber != user.PhoneNumber)
+        if (request.PhoneNumber != null && existingUser.PhoneNumber != request.PhoneNumber)
         {
-            existingUser.PhoneNumber = user.PhoneNumber;
+            existingUser.PhoneNumber = request.PhoneNumber;
             existingUser.IsPhoneVerified = false;
         }
 
-        if (!string.IsNullOrEmpty(user.PasswordHash))
-        {
-            existingUser.PasswordHash = BC.HashPassword(user.PasswordHash);
-        }
-        existingUser.HouseNameNumber = user.HouseNameNumber;
-        existingUser.Street1 = user.Street1;
-        existingUser.Street2 = user.Street2;
-        existingUser.City = user.City;
-        existingUser.State = user.State;
-        existingUser.Country = user.Country;
-        existingUser.ZipPostalCode = user.ZipPostalCode;
-        existingUser.UpiVpa = user.UpiVpa;
+        if (!string.IsNullOrEmpty(request.PasswordHash))
+            existingUser.PasswordHash = BC.HashPassword(request.PasswordHash);
+
+        existingUser.UpiVpa = request.UpiVpa;
         existingUser.UpdatedAt = DateTime.UtcNow;
+
+        // Update or create address record
+        if (existingUser.Address == null)
+        {
+            var newAddr = new Address { AddressType = "User", CreatedAt = DateTime.UtcNow };
+            _context.Addresses.Add(newAddr);
+            existingUser.Address = newAddr;
+        }
+        var addr = existingUser.Address;
+        addr.HouseNameNumber = request.HouseNameNumber;
+        addr.Street1 = request.Street1;
+        addr.Street2 = request.Street2;
+        addr.City = request.City;
+        addr.District = request.District;
+        addr.State = request.State;
+        addr.Country = request.Country;
+        addr.ZipPostalCode = request.ZipPostalCode;
+        if (request.Latitude.HasValue) addr.Latitude = request.Latitude;
+        if (request.Longitude.HasValue) addr.Longitude = request.Longitude;
+        addr.UpdatedAt = DateTime.UtcNow;
 
         try
         {
@@ -117,27 +135,24 @@ public class UsersController : ControllerBase
         catch (DbUpdateConcurrencyException)
         {
             if (!UserExists(id))
-            {
                 return NotFound();
-            }
-            else
-            {
-                throw;
-            }
+            throw;
         }
 
         return Ok(SafeUser(existingUser));
     }
 
     [HttpDelete("{id}")]
-    [Authorize(Roles = "User")]
+    [Authorize(Roles = "User,Admin")]
     public async Task<IActionResult> DeleteUser(int id)
     {
-        var user = await _context.Users.FindAsync(id);
+        var user = await _context.Users.Include(u => u.Address).FirstOrDefaultAsync(u => u.Id == id);
         if (user == null)
-        {
             return NotFound();
-        }
+
+        // Delete the associated address first to avoid orphans
+        if (user.Address != null)
+            _context.Addresses.Remove(user.Address);
 
         _context.Users.Remove(user);
         await _context.SaveChangesAsync();

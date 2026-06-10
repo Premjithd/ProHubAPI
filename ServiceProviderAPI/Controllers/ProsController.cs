@@ -27,7 +27,7 @@ public class ProsController : ControllerBase
     [Authorize(Roles = "Admin")]
     public async Task<ActionResult<IEnumerable<object>>> GetPros()
     {
-        var pros = await _context.Pros.Include(p => p.Services).ToListAsync();
+        var pros = await _context.Pros.Include(p => p.Services).Include(p => p.Address).ToListAsync();
         return Ok(pros.Select(p => SafePro(p)));
     }
 
@@ -43,7 +43,10 @@ public class ProsController : ControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10)
     {
-        var query = _context.Pros.Include(p => p.Services).AsQueryable();
+        var query = _context.Pros
+            .Include(p => p.Services)
+            .Include(p => p.Address)
+            .AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -51,7 +54,7 @@ public class ProsController : ControllerBase
             query = query.Where(p =>
                 p.ProName.ToLower().Contains(term) ||
                 p.BusinessName.ToLower().Contains(term) ||
-                (p.City != null && p.City.ToLower().Contains(term)) ||
+                (p.Address != null && p.Address.City != null && p.Address.City.ToLower().Contains(term)) ||
                 p.Services.Any(s => s.Name.ToLower().Contains(term)));
         }
 
@@ -59,16 +62,16 @@ public class ProsController : ControllerBase
             query = query.Where(p => p.Services.Any(s => s.ServiceCategoryId == categoryId.Value));
 
         if (!string.IsNullOrWhiteSpace(country))
-            query = query.Where(p => p.Country != null && p.Country.ToLower() == country.ToLower());
+            query = query.Where(p => p.Address != null && p.Address.Country != null && p.Address.Country.ToLower() == country.ToLower());
 
         if (!string.IsNullOrWhiteSpace(state))
-            query = query.Where(p => p.State != null && p.State.ToLower() == state.ToLower());
+            query = query.Where(p => p.Address != null && p.Address.State != null && p.Address.State.ToLower() == state.ToLower());
 
         if (!string.IsNullOrWhiteSpace(district))
-            query = query.Where(p => p.District != null && p.District.ToLower() == district.ToLower());
+            query = query.Where(p => p.Address != null && p.Address.District != null && p.Address.District.ToLower() == district.ToLower());
 
         if (!string.IsNullOrWhiteSpace(pinCode))
-            query = query.Where(p => p.ZipPostalCode != null && p.ZipPostalCode == pinCode);
+            query = query.Where(p => p.Address != null && p.Address.ZipPostalCode != null && p.Address.ZipPostalCode == pinCode);
 
         var total = await query.CountAsync();
         pageSize = Math.Clamp(pageSize, 1, 50);
@@ -88,8 +91,13 @@ public class ProsController : ControllerBase
             items = pros.Select(p => new
             {
                 p.Id, p.ProName, p.BusinessName,
-                p.City, p.District, p.State, p.Country,
-                p.Latitude, p.Longitude, p.ServiceRadiusKm,
+                City = p.Address != null ? p.Address.City : null,
+                District = p.Address != null ? p.Address.District : null,
+                State = p.Address != null ? p.Address.State : null,
+                Country = p.Address != null ? p.Address.Country : null,
+                Latitude = p.Address != null ? p.Address.Latitude : (double?)null,
+                Longitude = p.Address != null ? p.Address.Longitude : (double?)null,
+                p.ServiceRadiusKm,
                 p.IsEmailVerified,
                 Services = p.Services?.Select(s => new { s.Id, s.Name, s.Price })
             })
@@ -105,12 +113,12 @@ public class ProsController : ControllerBase
         bool isAdmin = User.IsInRole("Admin");
         bool isPro = User.IsInRole("Pro");
 
-        // Pros can only view their own full profile; users and admins can view any pro's public profile
         if (isPro && !isAdmin && callerId != id)
             return Forbid();
 
         var pro = await _context.Pros
             .Include(p => p.Services)
+            .Include(p => p.Address)
             .FirstOrDefaultAsync(p => p.Id == id);
 
         if (pro == null) return NotFound();
@@ -121,9 +129,18 @@ public class ProsController : ControllerBase
     private static object SafePro(Pro p) => new
     {
         p.Id, p.ProName, p.BusinessName, p.Email, p.PhoneNumber,
-        p.HouseNameNumber, p.Street1, p.Street2, p.City, p.State,
-        p.Country, p.ZipPostalCode, p.ServiceRadiusKm,
-        p.Latitude, p.Longitude, p.CreatedAt, p.UpdatedAt,
+        HouseNameNumber = p.Address != null ? p.Address.HouseNameNumber : null,
+        Street1 = p.Address != null ? p.Address.Street1 : null,
+        Street2 = p.Address != null ? p.Address.Street2 : null,
+        City = p.Address != null ? p.Address.City : null,
+        District = p.Address != null ? p.Address.District : null,
+        State = p.Address != null ? p.Address.State : null,
+        Country = p.Address != null ? p.Address.Country : null,
+        ZipPostalCode = p.Address != null ? p.Address.ZipPostalCode : null,
+        Latitude = p.Address != null ? p.Address.Latitude : (double?)null,
+        Longitude = p.Address != null ? p.Address.Longitude : (double?)null,
+        p.ServiceRadiusKm,
+        p.CreatedAt, p.UpdatedAt,
         p.IsEmailVerified, p.IsPhoneVerified,
         Services = p.Services?.Select(s => new { s.Id, s.Name, s.Description, s.Price })
     };
@@ -144,48 +161,55 @@ public class ProsController : ControllerBase
 
     [HttpPut("{id}")]
     [Authorize(Roles = "Pro")]
-    public async Task<ActionResult<Pro>> UpdatePro(int id, Pro pro)
+    public async Task<ActionResult<object>> UpdatePro(int id, [FromBody] UpdateProRequest request)
     {
-        if (id != pro.Id)
-        {
+        if (id != request.Id)
             return BadRequest();
-        }
 
-        var existingPro = await _context.Pros.FindAsync(id);
+        var existingPro = await _context.Pros.Include(p => p.Address).FirstOrDefaultAsync(p => p.Id == id);
         if (existingPro == null)
-        {
             return NotFound();
-        }
 
-        existingPro.ProName = pro.ProName;
+        if (request.ProName != null) existingPro.ProName = request.ProName;
 
-        if (!string.Equals(existingPro.Email, pro.Email, StringComparison.OrdinalIgnoreCase))
+        if (request.Email != null && !string.Equals(existingPro.Email, request.Email, StringComparison.OrdinalIgnoreCase))
         {
-            existingPro.Email = pro.Email;
+            existingPro.Email = request.Email;
             existingPro.IsEmailVerified = false;
         }
 
-        if (existingPro.PhoneNumber != pro.PhoneNumber)
+        if (request.PhoneNumber != null && existingPro.PhoneNumber != request.PhoneNumber)
         {
-            existingPro.PhoneNumber = pro.PhoneNumber;
+            existingPro.PhoneNumber = request.PhoneNumber;
             existingPro.IsPhoneVerified = false;
         }
 
-        if (!string.IsNullOrEmpty(pro.PasswordHash))
-        {
-            existingPro.PasswordHash = BC.HashPassword(pro.PasswordHash);
-        }
-        existingPro.BusinessName = pro.BusinessName;
-        existingPro.HouseNameNumber = pro.HouseNameNumber;
-        existingPro.Street1 = pro.Street1;
-        existingPro.Street2 = pro.Street2;
-        existingPro.City = pro.City;
-        existingPro.District = pro.District;
-        existingPro.State = pro.State;
-        existingPro.Country = pro.Country;
-        existingPro.ZipPostalCode = pro.ZipPostalCode;
-        existingPro.ServiceRadiusKm = pro.ServiceRadiusKm;
+        if (!string.IsNullOrEmpty(request.PasswordHash))
+            existingPro.PasswordHash = BC.HashPassword(request.PasswordHash);
+
+        if (request.BusinessName != null) existingPro.BusinessName = request.BusinessName;
+        existingPro.ServiceRadiusKm = request.ServiceRadiusKm;
         existingPro.UpdatedAt = DateTime.UtcNow;
+
+        // Update or create address record
+        if (existingPro.Address == null)
+        {
+            var newAddr = new Address { AddressType = "Pro", CreatedAt = DateTime.UtcNow };
+            _context.Addresses.Add(newAddr);
+            existingPro.Address = newAddr;
+        }
+        var addr = existingPro.Address;
+        addr.HouseNameNumber = request.HouseNameNumber;
+        addr.Street1 = request.Street1;
+        addr.Street2 = request.Street2;
+        addr.City = request.City;
+        addr.District = request.District;
+        addr.State = request.State;
+        addr.Country = request.Country;
+        addr.ZipPostalCode = request.ZipPostalCode;
+        if (request.Latitude.HasValue) addr.Latitude = request.Latitude;
+        if (request.Longitude.HasValue) addr.Longitude = request.Longitude;
+        addr.UpdatedAt = DateTime.UtcNow;
 
         try
         {
@@ -194,13 +218,8 @@ public class ProsController : ControllerBase
         catch (DbUpdateConcurrencyException)
         {
             if (!ProExists(id))
-            {
                 return NotFound();
-            }
-            else
-            {
-                throw;
-            }
+            throw;
         }
 
         return Ok(SafePro(existingPro));
@@ -210,11 +229,12 @@ public class ProsController : ControllerBase
     [Authorize(Roles = "Pro")]
     public async Task<IActionResult> DeletePro(int id)
     {
-        var pro = await _context.Pros.FindAsync(id);
+        var pro = await _context.Pros.Include(p => p.Address).FirstOrDefaultAsync(p => p.Id == id);
         if (pro == null)
-        {
             return NotFound();
-        }
+
+        if (pro.Address != null)
+            _context.Addresses.Remove(pro.Address);
 
         _context.Pros.Remove(pro);
         await _context.SaveChangesAsync();
@@ -272,7 +292,6 @@ public class ProsController : ControllerBase
         var pro = await _context.Pros.FindAsync(id);
         if (pro == null) return NotFound();
 
-        // If bank details changed, clear cached Razorpay fund account so a new one is created
         bool detailsChanged =
             pro.PayoutMethod != request.PayoutMethod ||
             pro.BankAccountNumber != request.BankAccountNumber ||
@@ -291,7 +310,6 @@ public class ProsController : ControllerBase
 
         await _context.SaveChangesAsync();
 
-        // Retry any pending payouts now that bank details are set
         var pendingPayouts = await _context.Payouts
             .Where(p => p.ProId == id && (p.Status == "Pending" || p.Status == "Failed"))
             .ToListAsync();
@@ -299,11 +317,7 @@ public class ProsController : ControllerBase
         foreach (var payout in pendingPayouts)
         {
             try { await _payoutService.ProcessPendingPayoutAsync(payout.Id); }
-            catch (Exception ex)
-            {
-                // non-fatal — logged inside the service
-                _ = ex;
-            }
+            catch (Exception ex) { _ = ex; }
         }
 
         return Ok(new { message = "Bank details updated successfully" });

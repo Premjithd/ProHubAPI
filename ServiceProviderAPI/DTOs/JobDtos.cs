@@ -60,6 +60,9 @@ public class CreateJobRequest
 
     [StringLength(500)]
     public string? Attachments { get; set; }  // JSON array
+
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
 }
 
 public class UpdateJobRequest

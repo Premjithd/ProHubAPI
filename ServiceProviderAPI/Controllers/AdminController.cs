@@ -390,11 +390,11 @@ public class AdminController : ControllerBase
     [HttpPost("users/geocode-backfill")]
     public async Task<ActionResult> GeocodeBackfillUsers()
     {
-        var users = await _context.Users
-            .Where(u => u.Latitude == null && u.City != null && u.City != "")
+        var addresses = await _context.Addresses
+            .Where(a => a.AddressType == "User" && a.Latitude == null && a.City != null && a.City != "")
             .ToListAsync();
 
-        if (!users.Any())
+        if (!addresses.Any())
             return Ok(new { message = "No users need geocoding.", updated = 0, failed = 0, total = 0 });
 
         var httpClient = _httpClientFactory.CreateClient();
@@ -402,23 +402,23 @@ public class AdminController : ControllerBase
 
         int updated = 0, failed = 0;
 
-        foreach (var user in users)
+        foreach (var addr in addresses)
         {
             try
             {
                 var coords = await TryGeocodeAsync(httpClient,
-                    user.HouseNameNumber, user.Street1, user.City, user.State, user.Country);
+                    addr.HouseNameNumber, addr.Street1, addr.City, addr.State, addr.Country);
 
                 if (coords.HasValue)
                 {
-                    user.Latitude = coords.Value.Lat;
-                    user.Longitude = coords.Value.Lon;
-                    user.UpdatedAt = DateTime.UtcNow;
+                    addr.Latitude = coords.Value.Lat;
+                    addr.Longitude = coords.Value.Lon;
+                    addr.UpdatedAt = DateTime.UtcNow;
                     updated++;
                 }
                 else
                 {
-                    _logger.LogWarning("Geocoding returned no results for user {Id} ({Email})", user.Id, user.Email);
+                    _logger.LogWarning("Geocoding returned no results for user address {Id}", addr.Id);
                     failed++;
                 }
 
@@ -426,7 +426,7 @@ public class AdminController : ControllerBase
             }
             catch (Exception ex)
             {
-                _logger.LogWarning("Geocoding failed for user {Id} ({Email}): {Error}", user.Id, user.Email, ex.Message);
+                _logger.LogWarning("Geocoding failed for user address {Id}: {Error}", addr.Id, ex.Message);
                 failed++;
             }
         }
@@ -438,18 +438,18 @@ public class AdminController : ControllerBase
             message = $"Geocoding complete. {updated} updated, {failed} could not be geocoded.",
             updated,
             failed,
-            total = users.Count
+            total = addresses.Count
         });
     }
 
     [HttpPost("pros/geocode-backfill")]
     public async Task<ActionResult> GeocodeBackfillPros()
     {
-        var pros = await _context.Pros
-            .Where(p => p.Latitude == null && p.City != null && p.City != "")
+        var addresses = await _context.Addresses
+            .Where(a => a.AddressType == "Pro" && a.Latitude == null && a.City != null && a.City != "")
             .ToListAsync();
 
-        if (!pros.Any())
+        if (!addresses.Any())
             return Ok(new { message = "No pros need geocoding.", updated = 0, failed = 0, total = 0 });
 
         var httpClient = _httpClientFactory.CreateClient();
@@ -457,23 +457,23 @@ public class AdminController : ControllerBase
 
         int updated = 0, failed = 0;
 
-        foreach (var pro in pros)
+        foreach (var addr in addresses)
         {
             try
             {
                 var coords = await TryGeocodeAsync(httpClient,
-                    pro.HouseNameNumber, pro.Street1, pro.City, pro.State, pro.Country);
+                    addr.HouseNameNumber, addr.Street1, addr.City, addr.State, addr.Country);
 
                 if (coords.HasValue)
                 {
-                    pro.Latitude = coords.Value.Lat;
-                    pro.Longitude = coords.Value.Lon;
-                    pro.UpdatedAt = DateTime.UtcNow;
+                    addr.Latitude = coords.Value.Lat;
+                    addr.Longitude = coords.Value.Lon;
+                    addr.UpdatedAt = DateTime.UtcNow;
                     updated++;
                 }
                 else
                 {
-                    _logger.LogWarning("Geocoding returned no results for pro {Id} ({Name})", pro.Id, pro.ProName);
+                    _logger.LogWarning("Geocoding returned no results for pro address {Id}", addr.Id);
                     failed++;
                 }
 
@@ -481,7 +481,7 @@ public class AdminController : ControllerBase
             }
             catch (Exception ex)
             {
-                _logger.LogWarning("Geocoding failed for pro {Id} ({Name}): {Error}", pro.Id, pro.ProName, ex.Message);
+                _logger.LogWarning("Geocoding failed for pro address {Id}: {Error}", addr.Id, ex.Message);
                 failed++;
             }
         }
@@ -493,7 +493,7 @@ public class AdminController : ControllerBase
             message = $"Geocoding complete. {updated} updated, {failed} could not be geocoded.",
             updated,
             failed,
-            total = pros.Count
+            total = addresses.Count
         });
     }
 

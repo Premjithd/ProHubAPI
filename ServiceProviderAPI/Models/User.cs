@@ -5,11 +5,11 @@ namespace ServiceProviderAPI.Models;
 public class User
 {
     public int Id { get; set; }
-    
+
     [Required]
     [StringLength(100)]
     public string? FirstName { get; set; }
-    
+
     [Required]
     [StringLength(100)]
     public string? LastName { get; set; }
@@ -17,45 +17,21 @@ public class User
     [Required]
     [EmailAddress]
     public string? Email { get; set; }
-    
+
     public string? PasswordHash { get; set; }
-    
+
     [Phone]
     public string? PhoneNumber { get; set; }
 
     public string? UserType { get; set; } = "User";  // "User" or "Pro"
-    
-    // Address Fields
-    [StringLength(100)]
-    public string? HouseNameNumber { get; set; }
-    
-    [StringLength(255)]
-    public string? Street1 { get; set; }
-    
-    [StringLength(255)]
-    public string? Street2 { get; set; }
-    
-    [StringLength(100)]
-    public string? City { get; set; }
-    
-    [StringLength(100)]
-    public string? District { get; set; }
-
-    [StringLength(100)]
-    public string? State { get; set; }
-
-    [StringLength(100)]
-    public string? Country { get; set; }
-
-    [StringLength(20)]
-    public string? ZipPostalCode { get; set; }
-
-    public double? Latitude { get; set; }
-    public double? Longitude { get; set; }
 
     // Saved payment preference for checkout pre-fill
     [StringLength(100)]
     public string? UpiVpa { get; set; }
+
+    // Address (normalized to Addresses table)
+    public int? AddressId { get; set; }
+    public Address? Address { get; set; }
 
     public ICollection<AdminUser>? AdminUsers { get; set; }
     public bool IsEmailVerified { get; set; }

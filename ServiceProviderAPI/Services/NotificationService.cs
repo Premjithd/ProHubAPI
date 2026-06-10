@@ -104,7 +104,7 @@ public class NotificationService : INotificationService
         try
         {
             var subject = $"New Job Opportunity - {job.Title}";
-            var serviceArea = $"{job.ServiceAddressCity}, {job.ServiceAddressState}";
+            var serviceArea = $"{job.ServiceAddress?.City}, {job.ServiceAddress?.State}";
             var message = $@"
             Hi there,
 
@@ -148,7 +148,7 @@ public class NotificationService : INotificationService
             Expected Payout: ₹{(amount * 0.9m):N2} (after 10% platform fee)
             Job Start Date: {bid.CommenceDate?.ToString("dd-MMM-yyyy") ?? "To be confirmed"}
             Expected Duration: {bid.ExpectedDurationDays} days
-            Service Location: {job.ServiceAddressCity}, {job.ServiceAddressState}
+            Service Location: {job.ServiceAddress?.City}, {job.ServiceAddress?.State}
             Contact: {job.ContactPersonName} - {job.ContactPersonPhone}
 
             Please confirm your acceptance of this job assignment to proceed.
