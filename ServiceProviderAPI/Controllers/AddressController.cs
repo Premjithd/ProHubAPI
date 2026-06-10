@@ -102,6 +102,179 @@ namespace ServiceProviderAPI.Controllers
         }
 
         /// <summary>
+        /// Look up address fields from a postal/PIN code (worldwide).
+        /// Results are cached for 24 h — postcode boundaries don't change.
+        ///
+        /// Strategy:
+        ///   1. Nominatim fallback chain (full → no-spaces → prefix)
+        ///   2. Zippopotam.us for Canadian FSA codes (letter-digit-letter) if Nominatim returns nothing
+        /// </summary>
+        [HttpGet("by-postcode")]
+        public async Task<IActionResult> GetAddressByPostcode(
+            [FromQuery] string code,
+            [FromQuery] string? countryCode = null)
+        {
+            if (string.IsNullOrWhiteSpace(code) || code.Trim().Length < 3)
+                return BadRequest(new { message = "Postal code must be at least 3 characters" });
+
+            if (code.Length > 20)
+                return BadRequest(new { message = "Postal code too long" });
+
+            var normalised = code.Trim().ToLowerInvariant();
+            var cacheKey = $"addr_postcode:{countryCode?.ToLowerInvariant()}:{normalised}";
+            if (_cache.TryGetValue(cacheKey, out object? cached))
+                return Ok(cached);
+
+            _httpClient.Timeout = TimeSpan.FromSeconds(30);
+
+            try
+            {
+                // ── 1. Nominatim fallback chain ──────────────────────────────────────
+                var candidates = new List<string> { code.Trim() };
+
+                var noSpaces = code.Replace(" ", "").Trim();
+                if (noSpaces != code.Trim())
+                    candidates.Add(noSpaces);
+
+                // Prefix before first space: "V5X" from "V5X 3S5", "SW1A" from "SW1A 2AA"
+                // When prefix is all letters (state label like "NSW"), try the suffix instead: "2000" from "NSW 2000"
+                var spaceIdx = code.Trim().IndexOf(' ');
+                if (spaceIdx > 2)
+                {
+                    var prefix = code.Trim()[..spaceIdx];
+                    if (prefix.All(char.IsLetter))
+                    {
+                        // "NSW 2000" → try "2000"; "ACT 2600" → try "2600"
+                        var suffix = code.Trim()[(spaceIdx + 1)..].Trim();
+                        if (suffix.Length >= 3)
+                            candidates.Add(suffix);
+                    }
+                    else
+                    {
+                        candidates.Add(prefix);
+                    }
+                }
+
+                object? result = null;
+
+                foreach (var candidate in candidates)
+                {
+                    await _throttle.WaitAsync(HttpContext.RequestAborted);
+
+                    var url = $"https://nominatim.openstreetmap.org/search?" +
+                        $"postalcode={Uri.EscapeDataString(candidate)}" +
+                        $"&format=json&addressdetails=1&limit=1";
+
+                    if (!string.IsNullOrWhiteSpace(countryCode))
+                        url += $"&countrycodes={Uri.EscapeDataString(countryCode)}";
+
+                    var req = new HttpRequestMessage(HttpMethod.Get, url);
+                    req.Headers.Add("User-Agent", "ProHub-AddressService/1.0");
+
+                    var resp = await _httpClient.SendAsync(req, HttpContext.RequestAborted);
+                    resp.EnsureSuccessStatusCode();
+
+                    var content = await resp.Content.ReadAsStringAsync();
+                    var hits = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement[]>(content);
+
+                    if (hits != null && hits.Length > 0)
+                    {
+                        result = hits[0];
+                        _logger.LogInformation("Postcode lookup: {Code} (Nominatim, candidate '{C}')", code, candidate);
+                        break;
+                    }
+                }
+
+                // ── 2. Zippopotam.us for Canadian postal codes ───────────────────────
+                // Canadian FSAs are uniquely letter-digit-letter (e.g. V5X).
+                // Nominatim has no Canadian postcode data; Zippopotam covers all FSAs.
+                if (result == null)
+                {
+                    var fsa = (spaceIdx > 2 ? code.Trim()[..spaceIdx] : code.Trim()[..Math.Min(3, code.Trim().Length)]).ToUpperInvariant();
+                    if (fsa.Length == 3 && char.IsLetter(fsa[0]) && char.IsDigit(fsa[1]) && char.IsLetter(fsa[2]))
+                    {
+                        result = await TryZippopotamUsAsync(fsa, code.Trim(), HttpContext.RequestAborted);
+                        if (result != null)
+                            _logger.LogInformation("Postcode lookup: {Code} (Zippopotam.us, FSA '{F}')", code, fsa);
+                    }
+                }
+
+                if (result == null)
+                    return Ok(null);
+
+                _cache.Set(cacheKey, result, TimeSpan.FromHours(24));
+                return Ok(result);
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogError("Nominatim postcode error {Code}: {Msg}", code, ex.Message);
+                return StatusCode(502, new { message = "Error calling address service" });
+            }
+            catch (TaskCanceledException)
+            {
+                return StatusCode(504, new { message = "Address service timeout" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Postcode lookup failed {Code}: {Msg}", code, ex.Message);
+                return StatusCode(500, new { message = "Internal server error" });
+            }
+        }
+
+        /// <summary>
+        /// Calls Zippopotam.us and returns a Nominatim-compatible object so the frontend
+        /// address parser works unchanged.
+        /// </summary>
+        private async Task<object?> TryZippopotamUsAsync(string fsa, string originalCode, CancellationToken ct)
+        {
+            try
+            {
+                var req = new HttpRequestMessage(HttpMethod.Get, $"https://api.zippopotam.us/CA/{fsa}");
+                req.Headers.Add("User-Agent", "ProHub-AddressService/1.0");
+
+                var resp = await _httpClient.SendAsync(req, ct);
+                if (!resp.IsSuccessStatusCode) return null;
+
+                using var doc = System.Text.Json.JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+                var root = doc.RootElement;
+
+                if (!root.TryGetProperty("places", out var places) || places.GetArrayLength() == 0)
+                    return null;
+
+                var place = places[0];
+                var placeName  = place.TryGetProperty("place name",  out var pn) ? pn.GetString() ?? "" : "";
+                var state      = place.TryGetProperty("state",        out var st) ? st.GetString() ?? "" : "";
+                var lat        = place.TryGetProperty("latitude",     out var la) ? la.GetString() ?? "" : "";
+                var lon        = place.TryGetProperty("longitude",    out var lo) ? lo.GetString() ?? "" : "";
+
+                // Strip parenthetical neighbourhood suffix: "Vancouver (SE Oakridge)" → "Vancouver"
+                var city = placeName.Contains('(') ? placeName[..placeName.IndexOf('(')].Trim() : placeName;
+
+                // Return Nominatim-shaped object — frontend parseNominatimAddress handles it unchanged
+                return new
+                {
+                    place_id = 0,
+                    display_name = $"{city}, {state}, Canada",
+                    address = new
+                    {
+                        city,
+                        state,
+                        country = "Canada",
+                        country_code = "ca",
+                        postcode = originalCode
+                    },
+                    lat,
+                    lon
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Zippopotam.us failed for FSA {Fsa}: {Msg}", fsa, ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Get detailed address information for a place
         /// </summary>
         /// <param name="placeId">Nominatim place ID</param>

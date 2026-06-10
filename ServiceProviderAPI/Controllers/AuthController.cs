@@ -133,7 +133,8 @@ public class AuthController : ControllerBase
             Id = user.Id,
             FirstName = user.FirstName,
             LastName = user.LastName,
-            Email = user.Email
+            Email = user.Email,
+            IsProfileComplete = user.AddressId != null
         };
     }
 
