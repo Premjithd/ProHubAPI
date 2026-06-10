@@ -119,7 +119,7 @@ namespace ServiceProviderAPI.Migrations
                     b.HasIndex("Token")
                         .IsUnique();
 
-                    b.ToTable("AdminInvitations");
+                    b.ToTable("AdminInvitations", (string)null);
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.AdminUser", b =>
@@ -173,7 +173,7 @@ namespace ServiceProviderAPI.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("AdminUsers");
+                    b.ToTable("AdminUsers", (string)null);
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.AppSetting", b =>
@@ -198,7 +198,7 @@ namespace ServiceProviderAPI.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("AppSettings");
+                    b.ToTable("AppSettings", (string)null);
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.Job", b =>
@@ -286,7 +286,7 @@ namespace ServiceProviderAPI.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("Jobs");
+                    b.ToTable("Jobs", (string)null);
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.JobBid", b =>
@@ -346,7 +346,7 @@ namespace ServiceProviderAPI.Migrations
 
                     b.HasIndex("ProId");
 
-                    b.ToTable("JobBids");
+                    b.ToTable("JobBids", (string)null);
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.JobCompletion", b =>
@@ -399,7 +399,7 @@ namespace ServiceProviderAPI.Migrations
 
                     b.HasIndex("JobId");
 
-                    b.ToTable("JobCompletions");
+                    b.ToTable("JobCompletions", (string)null);
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.JobInsurance", b =>
@@ -449,7 +449,7 @@ namespace ServiceProviderAPI.Migrations
 
                     b.HasIndex("JobId");
 
-                    b.ToTable("JobInsurances");
+                    b.ToTable("JobInsurances", (string)null);
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.JobNotification", b =>
@@ -501,7 +501,7 @@ namespace ServiceProviderAPI.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("JobNotifications");
+                    b.ToTable("JobNotifications", (string)null);
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.Material", b =>
@@ -544,7 +544,7 @@ namespace ServiceProviderAPI.Migrations
 
                     b.HasIndex("ServiceCategoryId");
 
-                    b.ToTable("Materials");
+                    b.ToTable("Materials", (string)null);
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.Message", b =>
@@ -587,7 +587,7 @@ namespace ServiceProviderAPI.Migrations
 
                     b.HasIndex("MessageIndexId");
 
-                    b.ToTable("Messages");
+                    b.ToTable("Messages", (string)null);
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.MessageIndex", b =>
@@ -626,7 +626,7 @@ namespace ServiceProviderAPI.Migrations
                         .IsUnique()
                         .HasDatabaseName("IX_MessageIndex_UserPair");
 
-                    b.ToTable("MessageIndexes");
+                    b.ToTable("MessageIndexes", (string)null);
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.PasswordResetToken", b =>
@@ -663,7 +663,7 @@ namespace ServiceProviderAPI.Migrations
                     b.HasIndex("Token")
                         .IsUnique();
 
-                    b.ToTable("PasswordResetTokens");
+                    b.ToTable("PasswordResetTokens", (string)null);
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.Payment", b =>
@@ -736,7 +736,7 @@ namespace ServiceProviderAPI.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("Payments");
+                    b.ToTable("Payments", (string)null);
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.Payout", b =>
@@ -798,7 +798,7 @@ namespace ServiceProviderAPI.Migrations
 
                     b.HasIndex("ProId");
 
-                    b.ToTable("Payouts");
+                    b.ToTable("Payouts", (string)null);
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.Pro", b =>
@@ -811,6 +811,10 @@ namespace ServiceProviderAPI.Migrations
 
                     b.Property<int?>("AddressId")
                         .HasColumnType("int");
+
+                    b.Property<string>("AadhaarDocumentPath")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<string>("BankAccountHolderName")
                         .HasMaxLength(100)
@@ -847,8 +851,20 @@ namespace ServiceProviderAPI.Migrations
                     b.Property<bool>("IsProfileComplete")
                         .HasColumnType("bit");
 
+                    b.Property<string>("KycStatus")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<DateTime?>("KycSubmittedAt")
+                        .HasColumnType("datetime2");
+
                     b.Property<DateTime?>("LockoutUntil")
                         .HasColumnType("datetime2");
+
+                    b.Property<string>("PanDocumentPath")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<string>("PasswordHash")
                         .HasColumnType("nvarchar(max)");
@@ -888,7 +904,7 @@ namespace ServiceProviderAPI.Migrations
 
                     b.HasIndex("AddressId");
 
-                    b.ToTable("Pros");
+                    b.ToTable("Pros", (string)null);
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.RefreshToken", b =>
@@ -927,7 +943,7 @@ namespace ServiceProviderAPI.Migrations
                     b.HasIndex("Token")
                         .IsUnique();
 
-                    b.ToTable("RefreshTokens");
+                    b.ToTable("RefreshTokens", (string)null);
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.Review", b =>
@@ -968,7 +984,7 @@ namespace ServiceProviderAPI.Migrations
 
                     b.HasIndex("ReviewerId");
 
-                    b.ToTable("Reviews");
+                    b.ToTable("Reviews", (string)null);
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.RevokedToken", b =>
@@ -994,7 +1010,7 @@ namespace ServiceProviderAPI.Migrations
                     b.HasIndex("Jti")
                         .IsUnique();
 
-                    b.ToTable("RevokedTokens");
+                    b.ToTable("RevokedTokens", (string)null);
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.Service", b =>
@@ -1040,7 +1056,7 @@ namespace ServiceProviderAPI.Migrations
 
                     b.HasIndex("ServiceCategoryId");
 
-                    b.ToTable("Services");
+                    b.ToTable("Services", (string)null);
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.ServiceArea", b =>
@@ -1086,7 +1102,7 @@ namespace ServiceProviderAPI.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("ServiceAreas");
+                    b.ToTable("ServiceAreas", (string)null);
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.ServiceCategory", b =>
@@ -1124,7 +1140,7 @@ namespace ServiceProviderAPI.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("ServiceCategories");
+                    b.ToTable("ServiceCategories", (string)null);
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.User", b =>
@@ -1187,7 +1203,7 @@ namespace ServiceProviderAPI.Migrations
 
                     b.HasIndex("AddressId");
 
-                    b.ToTable("Users");
+                    b.ToTable("Users", (string)null);
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.UserReview", b =>
@@ -1228,7 +1244,7 @@ namespace ServiceProviderAPI.Migrations
                     b.HasIndex("UserId")
                         .HasDatabaseName("IX_UserReviews_UserId");
 
-                    b.ToTable("UserReviews");
+                    b.ToTable("UserReviews", (string)null);
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.VerificationCode", b =>
@@ -1265,7 +1281,7 @@ namespace ServiceProviderAPI.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("VerificationCodes");
+                    b.ToTable("VerificationCodes", (string)null);
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.AdminUser", b =>
@@ -1455,16 +1471,6 @@ namespace ServiceProviderAPI.Migrations
                     b.Navigation("Pro");
                 });
 
-            modelBuilder.Entity("ServiceProviderAPI.Models.Pro", b =>
-                {
-                    b.HasOne("ServiceProviderAPI.Models.Address", "Address")
-                        .WithMany()
-                        .HasForeignKey("AddressId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("Address");
-                });
-
             modelBuilder.Entity("ServiceProviderAPI.Models.Review", b =>
                 {
                     b.HasOne("ServiceProviderAPI.Models.Job", "Job")
@@ -1509,16 +1515,6 @@ namespace ServiceProviderAPI.Migrations
                     b.Navigation("ServiceCategory");
                 });
 
-            modelBuilder.Entity("ServiceProviderAPI.Models.User", b =>
-                {
-                    b.HasOne("ServiceProviderAPI.Models.Address", "Address")
-                        .WithMany()
-                        .HasForeignKey("AddressId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("Address");
-                });
-
             modelBuilder.Entity("ServiceProviderAPI.Models.UserReview", b =>
                 {
                     b.HasOne("ServiceProviderAPI.Models.Job", "Job")
@@ -1553,6 +1549,13 @@ namespace ServiceProviderAPI.Migrations
 
             modelBuilder.Entity("ServiceProviderAPI.Models.Pro", b =>
                 {
+                    b.HasOne("ServiceProviderAPI.Models.Address", "Address")
+                        .WithMany()
+                        .HasForeignKey("AddressId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Address");
+
                     b.Navigation("AdminUsers");
 
                     b.Navigation("Services");
@@ -1560,6 +1563,13 @@ namespace ServiceProviderAPI.Migrations
 
             modelBuilder.Entity("ServiceProviderAPI.Models.User", b =>
                 {
+                    b.HasOne("ServiceProviderAPI.Models.Address", "Address")
+                        .WithMany()
+                        .HasForeignKey("AddressId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Address");
+
                     b.Navigation("AdminUsers");
                 });
 #pragma warning restore 612, 618

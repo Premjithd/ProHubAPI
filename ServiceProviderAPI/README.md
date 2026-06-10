@@ -1,134 +1,106 @@
-# Service Provider API - Verification System
+# ProHubAPI — ServiceProviderAPI
 
-## Overview
-The verification system provides email and phone verification functionality for both users and professionals in the Service Provider API. It generates time-limited verification codes, sends them via email/SMS, and validates them to confirm user contact information.
+ASP.NET Core 8 backend for the yProHub professional services marketplace.
 
-## Features
-- Email verification
-- Phone number verification
-- Separate verification flows for users and professionals
-- 6-digit verification codes
-- 15-minute code expiration
-- One-time use codes
-- Automatic user/pro verification status updates
+## Technology Stack
 
-## Components
+- ASP.NET Core 8, C# 13 (nullable reference types, implicit usings)
+- Entity Framework Core 8 + SQL Server
+- JWT Bearer authentication with token blacklisting
+- Razorpay payment integration
+- Msg91 SMS + SMTP email (console-only in dev)
+- Nominatim proxy for address autofill
 
-### 1. VerificationCode Model
-Located in `Models/VerificationCode.cs`, stores:
-- Unique verification codes
-- Email/phone number being verified
-- Expiration timestamp
-- Usage status
-- Verification type (Email/Phone)
-- User type (User/Pro)
+## Setup
 
-### 2. Verification Service
-Located in `Services/VerificationService.cs`, provides:
-- Code generation and storage
-- Email/SMS sending
-- Code verification
-- User/Pro status updates
-
-### 3. Verification Controller
-Located in `Controllers/VerificationController.cs`, exposes endpoints:
-```
-POST /api/verification/send-email-code
-POST /api/verification/send-phone-code
-POST /api/verification/verify-email
-POST /api/verification/verify-phone
+```bash
+dotnet restore
+dotnet watch run        # https://localhost:7042 — migrations auto-apply on startup
 ```
 
-## API Endpoints
+Swagger UI: `https://localhost:7042/swagger`
 
-### Send Email Verification Code
-```http
-POST /api/verification/send-email-code
-Content-Type: application/json
+Add a new migration:
 
-{
-    "contact": "user@example.com",
-    "userType": "User"  // or "Pro"
-}
+```bash
+dotnet build                                    # always build first
+dotnet ef migrations add <MigrationName>
+dotnet ef database update
 ```
 
-### Send Phone Verification Code
-```http
-POST /api/verification/send-phone-code
-Content-Type: application/json
+## Architecture
 
-{
-    "contact": "+1234567890",
-    "userType": "User"  // or "Pro"
-}
-```
+**Layered**: Controllers → Services → EF Core `ApplicationDbContext`
 
-### Verify Email
-```http
-POST /api/verification/verify-email
-Content-Type: application/json
+**Plugin abstractions** (`Services/Abstractions/`):
+- `IPaymentProvider` — Razorpay implementation
+- `INotificationChannel` — SMTP and Msg91 implementations
+- `IFileStorageService`, `IInsuranceProvider` — placeholder interfaces
 
-{
-    "contact": "user@example.com",
-    "code": "123456",
-    "userType": "User"  // or "Pro"
-}
-```
+## API Surface
 
-### Verify Phone
-```http
-POST /api/verification/verify-phone
-Content-Type: application/json
+| Controller | Prefix | Responsibility |
+|---|---|---|
+| AuthController | `/api/auth` | Login, registration, JWT issue, logout (token revocation) |
+| VerificationController | `/api/verification` | Send/verify email and phone codes |
+| UsersController | `/api/users` | User profile CRUD |
+| ProsController | `/api/pros` | Pro profile, service categories, service areas |
+| JobsController | `/api/jobs` | Job posting, bidding, status lifecycle |
+| JobCompletionController | `/api/jobcompletion` | Completion sign-off flow |
+| JobInsuranceController | `/api/jobinsurance` | Insurance records per job |
+| JobNotificationController | `/api/notifications` | Job activity notifications |
+| MessagesController | `/api/messages` | Direct messaging (MessageIndex + Message) |
+| PaymentsController | `/api/payments` | Razorpay order creation, verification |
+| MaterialsController | `/api/materials` | Job materials tracking |
+| ServicesController | `/api/services` | Service category listing |
+| AdminController | `/api/admin` | Category CRUD, service area CRUD, user management, refunds, disputes, settings |
+| AddressController | `/api/address` | Nominatim proxy for address autofill |
 
-{
-    "contact": "+1234567890",
-    "code": "123456",
-    "userType": "User"  // or "Pro"
-}
-```
+## Key Features
 
-## Configuration
+### Authentication & Verification
+- JWT tokens include a `jti` claim. On logout, `jti` is written to `RevokedTokens`; an `OnTokenValidated` hook rejects blacklisted tokens on every request.
+- Verification: 6-digit codes, 15-minute expiry, one-time use; separate flows for users and pros.
+- Two-step pro registration: create account, then complete profile.
 
-### Email Settings
-In `appsettings.json`:
+### Service Categories
+- Admin-managed via `AdminController`; seeded on startup by `SeedDataService`.
+- Exposes pro counts per category for browse/search pages.
+
+### Service Areas
+- Country → State → District → PIN hierarchy.
+- Admin CRUD; pros and jobs validated against registered areas.
+- Find-a-pro filtered by service area; seeded with Trivandrum data.
+
+### Payments & Refunds
+- Razorpay order creation and signature verification.
+- Refund tracking per payment; admin refund action and dispute UI.
+- `RateSplitService` calculates platform fee vs. pro payout.
+
+### Address Autofill
+- `AddressController` proxies requests to Nominatim (OpenStreetMap) to keep the API key server-side.
+
+## Data Models (EF Entities)
+
+`User`, `Pro`, `Job`, `JobBid`, `JobCompletion`, `JobInsurance`, `JobNotification`, `Service`, `ServiceArea`, `Message`, `MessageIndex`, `Payment`, `RevokedToken`, `VerificationCode`
+
+## Configuration (`appsettings.json`)
+
 ```json
 {
-  "Email": {
-    "SmtpServer": "smtp.example.com",
-    "Port": 587,
-    "Username": "your-email@example.com",
-    "Password": "your-email-password",
-    "From": "noreply@yourapp.com"
-  }
+  "ConnectionStrings": { "DefaultConnection": "Server=(localdb)\\mssqllocaldb;Database=ServiceProviderDB;..." },
+  "Jwt": { "Key": "...", "Issuer": "https://localhost:7042", "Audience": "https://localhost:7042" },
+  "Email": { "SmtpServer": "...", "Port": 587, "Username": "...", "Password": "...", "From": "..." },
+  "Payment": { "Razorpay": { "KeyId": "...", "KeySecret": "..." } }
 }
 ```
 
-## Development vs Production
+Override with `appsettings.Development.json` for local dev.
 
-### Development Mode
-- Email sending is disabled
-- SMS sending is disabled
-- Verification codes are logged to the console
+## Production Checklist
 
-### Production Setup Required
-1. Configure SMTP server settings in `appsettings.json`
-2. Implement SMS service (e.g., Twilio) in `SendVerificationSms`
-3. Uncomment email sending code in `SendVerificationEmail`
-4. Update security settings as needed
-
-## Security Considerations
-- Verification codes expire after 15 minutes
-- Codes can only be used once
-- Failed verification attempts are logged
-- Rate limiting should be implemented in production
-- Secure your email/SMS service credentials
-
-## Database Tables
-The system uses the following tables:
-- VerificationCodes: Stores verification codes and their status
-- Users/Pros: Contains verification status flags (IsEmailVerified, IsPhoneVerified)
-
-## Dependencies
-- .NET 8
-- Entity Framework Core
-- System.Net.Mail for email functionality
+- Replace the example JWT secret key.
+- Restrict CORS (dev uses `AllowAnyOrigin()`).
+- Configure SMTP and Msg91 credentials (console-only in dev).
+- Swap Razorpay test keys for live keys.
+- Remove or secure the Swagger endpoint.

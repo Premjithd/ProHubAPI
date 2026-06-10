@@ -12,8 +12,8 @@ using ServiceProviderAPI.Data;
 namespace ServiceProviderAPI.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260610000845_AddAddressTable")]
-    partial class AddAddressTable
+    [Migration("20260610065528_AddKycFieldsToPro")]
+    partial class AddKycFieldsToPro
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)

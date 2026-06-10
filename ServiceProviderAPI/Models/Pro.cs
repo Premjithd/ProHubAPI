@@ -55,6 +55,18 @@ public class Pro
 
     public ICollection<Service>? Services { get; set; }
     public ICollection<AdminUser>? AdminUsers { get; set; }
+    // KYC Documents
+    [StringLength(500)]
+    public string? AadhaarDocumentPath { get; set; }
+
+    [StringLength(500)]
+    public string? PanDocumentPath { get; set; }
+
+    [StringLength(20)]
+    public string KycStatus { get; set; } = "None"; // None | Submitted | Approved | Rejected
+
+    public DateTime? KycSubmittedAt { get; set; }
+
     public bool IsEmailVerified { get; set; }
     public bool IsPhoneVerified { get; set; }
     public bool IsProfileComplete { get; set; } = false;
