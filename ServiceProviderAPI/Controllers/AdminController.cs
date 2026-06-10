@@ -387,6 +387,48 @@ public class AdminController : ControllerBase
         return Ok(new { message = "Service radius updated.", serviceRadiusKm = pro.ServiceRadiusKm });
     }
 
+    [HttpGet("users/geocode-backfill/pending")]
+    public async Task<ActionResult> GetPendingGeocodeUsers()
+    {
+        var pending = await _context.Users
+            .Where(u => u.AddressId != null
+                && u.Address!.Latitude == null
+                && u.Address!.City != null
+                && u.Address!.City != "")
+            .Select(u => new {
+                u.Id,
+                Name = (u.FirstName ?? "") + " " + (u.LastName ?? ""),
+                u.Email,
+                City = u.Address!.City,
+                State = u.Address!.State,
+                Country = u.Address!.Country
+            })
+            .OrderBy(x => x.Name)
+            .ToListAsync();
+        return Ok(pending);
+    }
+
+    [HttpGet("pros/geocode-backfill/pending")]
+    public async Task<ActionResult> GetPendingGeocodePros()
+    {
+        var pending = await _context.Pros
+            .Where(p => p.AddressId != null
+                && p.Address!.Latitude == null
+                && p.Address!.City != null
+                && p.Address!.City != "")
+            .Select(p => new {
+                p.Id,
+                Name = p.ProName,
+                p.Email,
+                City = p.Address!.City,
+                State = p.Address!.State,
+                Country = p.Address!.Country
+            })
+            .OrderBy(x => x.Name)
+            .ToListAsync();
+        return Ok(pending);
+    }
+
     [HttpPost("users/geocode-backfill")]
     public async Task<ActionResult> GeocodeBackfillUsers()
     {
@@ -395,12 +437,13 @@ public class AdminController : ControllerBase
             .ToListAsync();
 
         if (!addresses.Any())
-            return Ok(new { message = "No users need geocoding.", updated = 0, failed = 0, total = 0 });
+            return Ok(new { message = "No users need geocoding.", updated = 0, failed = 0, total = 0, details = Array.Empty<object>() });
 
         var httpClient = _httpClientFactory.CreateClient();
         httpClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "ProHub-AddressService/1.0");
 
-        int updated = 0, failed = 0;
+        var updatedIds = new List<int>();
+        var failedIds = new List<int>();
 
         foreach (var addr in addresses)
         {
@@ -414,12 +457,12 @@ public class AdminController : ControllerBase
                     addr.Latitude = coords.Value.Lat;
                     addr.Longitude = coords.Value.Lon;
                     addr.UpdatedAt = DateTime.UtcNow;
-                    updated++;
+                    updatedIds.Add(addr.Id);
                 }
                 else
                 {
                     _logger.LogWarning("Geocoding returned no results for user address {Id}", addr.Id);
-                    failed++;
+                    failedIds.Add(addr.Id);
                 }
 
                 await Task.Delay(1100);
@@ -427,18 +470,37 @@ public class AdminController : ControllerBase
             catch (Exception ex)
             {
                 _logger.LogWarning("Geocoding failed for user address {Id}: {Error}", addr.Id, ex.Message);
-                failed++;
+                failedIds.Add(addr.Id);
             }
         }
 
         await _context.SaveChangesAsync();
 
+        var addrMap = addresses.ToDictionary(a => a.Id);
+        var allIds = updatedIds.Concat(failedIds).ToList();
+
+        var users = await _context.Users
+            .Where(u => u.AddressId != null && allIds.Contains(u.AddressId!.Value))
+            .Select(u => new { u.Id, Name = (u.FirstName ?? "") + " " + (u.LastName ?? ""), u.Email, u.AddressId })
+            .ToListAsync();
+
+        var details = users.Select(u => {
+            addrMap.TryGetValue(u.AddressId!.Value, out var a);
+            return new {
+                u.Id, u.Name, u.Email,
+                City = a?.City, State = a?.State, Country = a?.Country,
+                Lat = a?.Latitude, Lng = a?.Longitude,
+                Status = updatedIds.Contains(u.AddressId!.Value) ? "updated" : "failed"
+            };
+        }).OrderBy(d => d.Status).ThenBy(d => d.Name).ToList();
+
         return Ok(new
         {
-            message = $"Geocoding complete. {updated} updated, {failed} could not be geocoded.",
-            updated,
-            failed,
-            total = addresses.Count
+            message = $"Geocoding complete. {updatedIds.Count} updated, {failedIds.Count} could not be geocoded.",
+            updated = updatedIds.Count,
+            failed = failedIds.Count,
+            total = addresses.Count,
+            details
         });
     }
 
@@ -450,12 +512,13 @@ public class AdminController : ControllerBase
             .ToListAsync();
 
         if (!addresses.Any())
-            return Ok(new { message = "No pros need geocoding.", updated = 0, failed = 0, total = 0 });
+            return Ok(new { message = "No pros need geocoding.", updated = 0, failed = 0, total = 0, details = Array.Empty<object>() });
 
         var httpClient = _httpClientFactory.CreateClient();
         httpClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "ProHub-AddressService/1.0");
 
-        int updated = 0, failed = 0;
+        var updatedIds = new List<int>();
+        var failedIds = new List<int>();
 
         foreach (var addr in addresses)
         {
@@ -469,12 +532,12 @@ public class AdminController : ControllerBase
                     addr.Latitude = coords.Value.Lat;
                     addr.Longitude = coords.Value.Lon;
                     addr.UpdatedAt = DateTime.UtcNow;
-                    updated++;
+                    updatedIds.Add(addr.Id);
                 }
                 else
                 {
                     _logger.LogWarning("Geocoding returned no results for pro address {Id}", addr.Id);
-                    failed++;
+                    failedIds.Add(addr.Id);
                 }
 
                 await Task.Delay(1100);
@@ -482,18 +545,37 @@ public class AdminController : ControllerBase
             catch (Exception ex)
             {
                 _logger.LogWarning("Geocoding failed for pro address {Id}: {Error}", addr.Id, ex.Message);
-                failed++;
+                failedIds.Add(addr.Id);
             }
         }
 
         await _context.SaveChangesAsync();
 
+        var addrMap = addresses.ToDictionary(a => a.Id);
+        var allIds = updatedIds.Concat(failedIds).ToList();
+
+        var pros = await _context.Pros
+            .Where(p => p.AddressId != null && allIds.Contains(p.AddressId!.Value))
+            .Select(p => new { p.Id, Name = p.ProName, p.Email, p.AddressId })
+            .ToListAsync();
+
+        var details = pros.Select(p => {
+            addrMap.TryGetValue(p.AddressId!.Value, out var a);
+            return new {
+                p.Id, p.Name, p.Email,
+                City = a?.City, State = a?.State, Country = a?.Country,
+                Lat = a?.Latitude, Lng = a?.Longitude,
+                Status = updatedIds.Contains(p.AddressId!.Value) ? "updated" : "failed"
+            };
+        }).OrderBy(d => d.Status).ThenBy(d => d.Name).ToList();
+
         return Ok(new
         {
-            message = $"Geocoding complete. {updated} updated, {failed} could not be geocoded.",
-            updated,
-            failed,
-            total = addresses.Count
+            message = $"Geocoding complete. {updatedIds.Count} updated, {failedIds.Count} could not be geocoded.",
+            updated = updatedIds.Count,
+            failed = failedIds.Count,
+            total = addresses.Count,
+            details
         });
     }
 
