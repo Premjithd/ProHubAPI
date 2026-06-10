@@ -272,6 +272,76 @@ public class AuthController : ControllerBase
         };
     }
 
+    [HttpPost("user/register/draft")]
+    [EnableRateLimiting("auth-register")]
+    public async Task<ActionResult<object>> RegisterUserStep1(UserRegistrationStep1Request request)
+    {
+        if (await _context.Users.AnyAsync(u => u.Email == request.Email))
+            return BadRequest(new { message = "Email already registered. Please log in instead." });
+
+        var user = new User
+        {
+            FirstName = request.FirstName,
+            LastName = request.LastName,
+            Email = request.Email,
+            PasswordHash = BC.HashPassword(request.Password),
+            PhoneNumber = request.PhoneNumber,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        _context.Users.Add(user);
+        await _context.SaveChangesAsync();
+        _logger.LogInformation("User draft created for {Email}, UserId={UserId}", request.Email, user.Id);
+
+        return Ok(new { userId = user.Id });
+    }
+
+    [HttpPost("user/register/complete/{userId:int}")]
+    [EnableRateLimiting("auth-register")]
+    public async Task<ActionResult<LoginResponse>> RegisterUserStep2(int userId, UserRegistrationStep2Request request)
+    {
+        var user = await _context.Users.FindAsync(userId);
+        if (user == null || user.AddressId != null)
+            return NotFound(new { message = "Draft registration not found" });
+
+        var address = new Address
+        {
+            AddressType = "User",
+            HouseNameNumber = request.HouseNameNumber,
+            Street1 = request.Street1,
+            Street2 = request.Street2,
+            City = request.City,
+            District = request.District,
+            State = request.State,
+            Country = request.Country,
+            ZipPostalCode = request.ZipPostalCode,
+            Latitude = request.Latitude,
+            Longitude = request.Longitude,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        _context.Addresses.Add(address);
+        await _context.SaveChangesAsync();
+
+        user.AddressId = address.Id;
+        user.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        var (token, _) = _jwtService.GenerateToken(user, "User");
+        var refresh = await CreateRefreshTokenAsync(user.Id, "User");
+        return new LoginResponse
+        {
+            Token = token,
+            RefreshToken = refresh.Token,
+            Role = "User",
+            Id = user.Id,
+            FirstName = user.FirstName,
+            LastName = user.LastName,
+            Email = user.Email
+        };
+    }
+
     [HttpPost("pro/register/draft")]
     public async Task<ActionResult<object>> RegisterProStep1(ProRegistrationStep1Request request)
     {
