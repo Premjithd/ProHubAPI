@@ -22,7 +22,6 @@ public class UpdateUserRequest
     public string? ZipPostalCode { get; set; }
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
-    public string? UpiVpa { get; set; }
 }
 
 public class UpdateProRequest

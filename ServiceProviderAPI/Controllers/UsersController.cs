@@ -59,7 +59,7 @@ public class UsersController : ControllerBase
         Latitude = u.Address != null ? u.Address.Latitude : (double?)null,
         Longitude = u.Address != null ? u.Address.Longitude : (double?)null,
         u.CreatedAt, u.UpdatedAt,
-        u.IsEmailVerified, u.IsPhoneVerified, u.UpiVpa
+        u.IsEmailVerified, u.IsPhoneVerified
     };
 
     [HttpPost]
@@ -105,7 +105,6 @@ public class UsersController : ControllerBase
         if (!string.IsNullOrEmpty(request.PasswordHash))
             existingUser.PasswordHash = BC.HashPassword(request.PasswordHash);
 
-        existingUser.UpiVpa = request.UpiVpa;
         existingUser.UpdatedAt = DateTime.UtcNow;
 
         // Update or create address record
@@ -160,43 +159,5 @@ public class UsersController : ControllerBase
         return NoContent();
     }
 
-    [HttpGet("{id}/payment-details")]
-    [Authorize(Roles = "User")]
-    public async Task<IActionResult> GetPaymentDetails(int id)
-    {
-        var callerId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "0");
-        if (callerId != id) return Forbid();
-
-        var user = await _context.Users.FindAsync(id);
-        if (user == null) return NotFound();
-
-        return Ok(new { upiVpa = user.UpiVpa, hasPaymentDetails = !string.IsNullOrWhiteSpace(user.UpiVpa) });
-    }
-
-    [HttpPut("{id}/payment-details")]
-    [Authorize(Roles = "User")]
-    public async Task<IActionResult> UpdatePaymentDetails(int id, [FromBody] UpdateUserPaymentDetailsRequest request)
-    {
-        var callerId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "0");
-        if (callerId != id) return Forbid();
-
-        var user = await _context.Users.FindAsync(id);
-        if (user == null) return NotFound();
-
-        user.UpiVpa = string.IsNullOrWhiteSpace(request.UpiVpa) ? null : request.UpiVpa.Trim();
-        user.UpdatedAt = DateTime.UtcNow;
-        await _context.SaveChangesAsync();
-
-        return Ok(new { message = "Payment details updated successfully", upiVpa = user.UpiVpa });
-    }
-
-    private bool UserExists(int id)
-    {
-        return _context.Users.Any(e => e.Id == id);
-    }
-}
-
-public class UpdateUserPaymentDetailsRequest
-{
-    public string? UpiVpa { get; set; }
+    private bool UserExists(int id) => _context.Users.Any(e => e.Id == id);
 }

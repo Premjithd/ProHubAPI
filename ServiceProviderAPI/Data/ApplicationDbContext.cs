@@ -37,6 +37,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<AppSetting> AppSettings { get; set; }
     public DbSet<Business> Businesses { get; set; }
     public DbSet<ProBusinessMembership> ProBusinessMemberships { get; set; }
+    public DbSet<PaymentMethod> PaymentMethods { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -305,5 +306,26 @@ public class ApplicationDbContext : DbContext
             .HasForeignKey(s => s.BusinessId)
             .IsRequired(false)
             .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<PaymentMethod>()
+            .HasOne(pm => pm.User)
+            .WithMany(u => u.PaymentMethods)
+            .HasForeignKey(pm => pm.UserId)
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<PaymentMethod>()
+            .HasOne(pm => pm.Pro)
+            .WithMany(p => p.PaymentMethods)
+            .HasForeignKey(pm => pm.ProId)
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<PaymentMethod>()
+            .HasOne(pm => pm.Business)
+            .WithMany(b => b.PaymentMethods)
+            .HasForeignKey(pm => pm.BusinessId)
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

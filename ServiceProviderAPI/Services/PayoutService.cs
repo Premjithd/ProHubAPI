@@ -9,8 +9,8 @@ public interface IPayoutService
 {
     /// <summary>
     /// Creates a Payout record for a completed job payment and immediately attempts
-    /// to initiate the Razorpay payout if the pro has bank details configured.
-    /// If bank details are missing the payout stays Pending.
+    /// to initiate the Razorpay payout if the pro has a payment method configured.
+    /// If no payment method exists the payout stays Pending.
     /// </summary>
     Task<Payout> CreateAndProcessPayoutAsync(int paymentId, int jobId, int proId, decimal amount);
 
@@ -42,9 +42,7 @@ public class PayoutService : IPayoutService
 
     public async Task<Payout> CreateAndProcessPayoutAsync(int paymentId, int jobId, int proId, decimal amount)
     {
-        // Guard: don't double-create
-        var existing = await _context.Payouts
-            .FirstOrDefaultAsync(p => p.PaymentId == paymentId);
+        var existing = await _context.Payouts.FirstOrDefaultAsync(p => p.PaymentId == paymentId);
         if (existing != null)
         {
             _logger.LogWarning("Payout already exists for Payment:{PaymentId} — skipping", paymentId);
@@ -72,9 +70,10 @@ public class PayoutService : IPayoutService
             return payout;
         }
 
-        if (!HasBankDetails(pro))
+        var paymentMethod = await GetDefaultPaymentMethodAsync(proId);
+        if (paymentMethod == null || !HasPayoutDetails(paymentMethod))
         {
-            _logger.LogInformation("Pro:{ProId} has no bank details — payout {PayoutId} stays Pending", proId, payout.Id);
+            _logger.LogInformation("Pro:{ProId} has no payment method — payout {PayoutId} stays Pending", proId, payout.Id);
             await _notificationService.NotifyAsync(
                 pro.Email,
                 pro.PhoneNumber,
@@ -84,7 +83,7 @@ public class PayoutService : IPayoutService
             return payout;
         }
 
-        await SendToRazorpayAsync(payout, pro);
+        await SendToRazorpayAsync(payout, pro, paymentMethod);
         return payout;
     }
 
@@ -106,19 +105,30 @@ public class PayoutService : IPayoutService
             return false;
         }
 
-        if (payout.Pro == null || !HasBankDetails(payout.Pro))
+        if (payout.Pro == null) return false;
+
+        var paymentMethod = await GetDefaultPaymentMethodAsync(payout.ProId);
+        if (paymentMethod == null || !HasPayoutDetails(paymentMethod))
         {
-            _logger.LogWarning("Payout:{PayoutId} — pro has no bank details", payoutId);
+            _logger.LogWarning("Payout:{PayoutId} — pro has no payment method set up", payoutId);
             return false;
         }
 
-        return await SendToRazorpayAsync(payout, payout.Pro);
+        return await SendToRazorpayAsync(payout, payout.Pro, paymentMethod);
     }
 
-    private async Task<bool> SendToRazorpayAsync(Payout payout, Pro pro)
+    private async Task<PaymentMethod?> GetDefaultPaymentMethodAsync(int proId) =>
+        await _context.PaymentMethods
+            .Where(pm => pm.ProId == proId && pm.IsDefault)
+            .FirstOrDefaultAsync()
+        ?? await _context.PaymentMethods
+            .Where(pm => pm.ProId == proId)
+            .OrderBy(pm => pm.CreatedAt)
+            .FirstOrDefaultAsync();
+
+    private async Task<bool> SendToRazorpayAsync(Payout payout, Pro pro, PaymentMethod pm)
     {
-        // Ensure Razorpay contact exists
-        if (string.IsNullOrEmpty(pro.RazorpayContactId))
+        if (string.IsNullOrEmpty(pm.RazorpayContactId))
         {
             var contactId = await _paymentProvider.CreateOrGetContactAsync(
                 pro.Id, pro.ProName, pro.Email, pro.PhoneNumber);
@@ -133,16 +143,15 @@ public class PayoutService : IPayoutService
                 return false;
             }
 
-            pro.RazorpayContactId = contactId;
+            pm.RazorpayContactId = contactId;
             await _context.SaveChangesAsync();
         }
 
-        // Ensure fund account exists
-        if (string.IsNullOrEmpty(pro.RazorpayFundAccountId))
+        if (string.IsNullOrEmpty(pm.RazorpayFundAccountId))
         {
-            var (accountType, holderName, accountNumber, ifsc, vpa) = GetBankParams(pro);
+            var (accountType, holderName, accountNumber, ifsc, vpa) = GetBankParams(pm, pro.ProName);
             var fundAccountId = await _paymentProvider.CreateFundAccountAsync(
-                pro.RazorpayContactId!, accountType, holderName, accountNumber, ifsc, vpa);
+                pm.RazorpayContactId!, accountType, holderName, accountNumber, ifsc, vpa);
 
             if (fundAccountId == null)
             {
@@ -154,13 +163,13 @@ public class PayoutService : IPayoutService
                 return false;
             }
 
-            pro.RazorpayFundAccountId = fundAccountId;
+            pm.RazorpayFundAccountId = fundAccountId;
             await _context.SaveChangesAsync();
         }
 
-        var mode = pro.PayoutMethod == "UPI" ? "UPI" : "IMPS";
+        var mode = pm.Type == "UPI" ? "UPI" : "IMPS";
         var razorpayPayoutId = await _paymentProvider.InitiatePayoutAsync(
-            pro.RazorpayFundAccountId!,
+            pm.RazorpayFundAccountId!,
             payout.Amount,
             mode,
             "payout",
@@ -175,8 +184,7 @@ public class PayoutService : IPayoutService
             await _context.SaveChangesAsync();
 
             await _notificationService.NotifyAsync(
-                pro.Email,
-                pro.PhoneNumber,
+                pro.Email, pro.PhoneNumber,
                 $"Payout failed — Job #{payout.JobId}",
                 $"Hi {pro.ProName}, your payout of ₹{payout.Amount:F2} could not be processed. " +
                 "Please verify your bank details in your profile or contact support.");
@@ -186,36 +194,35 @@ public class PayoutService : IPayoutService
         payout.Status = "Processing";
         payout.Mode = mode;
         payout.RazorpayPayoutId = razorpayPayoutId;
-        payout.RazorpayFundAccountId = pro.RazorpayFundAccountId;
+        payout.RazorpayFundAccountId = pm.RazorpayFundAccountId;
         payout.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
         _logger.LogInformation("Payout:{PayoutId} initiated — RazorpayId:{RazorpayPayoutId}", payout.Id, razorpayPayoutId);
 
         await _notificationService.NotifyAsync(
-            pro.Email,
-            pro.PhoneNumber,
+            pro.Email, pro.PhoneNumber,
             $"Payout initiated — ₹{payout.Amount:F2} on its way",
             $"Hi {pro.ProName}, your payout of ₹{payout.Amount:F2} for job #{payout.JobId} " +
             $"has been initiated via {mode}. Funds typically arrive within 1–2 business days.");
         return true;
     }
 
-    private static bool HasBankDetails(Pro pro) =>
-        pro.PayoutMethod == "UPI"
-            ? !string.IsNullOrWhiteSpace(pro.UpiVpa)
-            : !string.IsNullOrWhiteSpace(pro.BankAccountNumber) && !string.IsNullOrWhiteSpace(pro.BankIfsc);
+    private static bool HasPayoutDetails(PaymentMethod pm) =>
+        pm.Type == "UPI"
+            ? !string.IsNullOrWhiteSpace(pm.UpiVpa)
+            : !string.IsNullOrWhiteSpace(pm.BankAccountNumber) && !string.IsNullOrWhiteSpace(pm.BankIfsc);
 
     private static (string accountType, string holderName, string? accountNumber, string? ifsc, string? vpa)
-        GetBankParams(Pro pro)
+        GetBankParams(PaymentMethod pm, string proName)
     {
-        if (pro.PayoutMethod == "UPI")
-            return ("vpa", pro.ProName, null, null, pro.UpiVpa);
+        if (pm.Type == "UPI")
+            return ("vpa", pm.BankAccountHolderName ?? proName, null, null, pm.UpiVpa);
 
         return ("bank_account",
-            pro.BankAccountHolderName ?? pro.ProName,
-            pro.BankAccountNumber,
-            pro.BankIfsc,
+            pm.BankAccountHolderName ?? proName,
+            pm.BankAccountNumber,
+            pm.BankIfsc,
             null);
     }
 }

@@ -242,7 +242,7 @@ public class ProsController : ControllerBase
         return NoContent();
     }
 
-    // GET: api/pros/{id}/bank-details
+    // GET: api/pros/{id}/bank-details — returns the pro's default payout PaymentMethod
     [HttpGet("{id}/bank-details")]
     [Authorize(Roles = "Pro,Admin")]
     public async Task<IActionResult> GetBankDetails(int id)
@@ -253,25 +253,34 @@ public class ProsController : ControllerBase
         if (!isAdmin && callerId != id)
             return Forbid();
 
-        var pro = await _context.Pros.FindAsync(id);
-        if (pro == null) return NotFound();
+        if (!await _context.Pros.AnyAsync(p => p.Id == id))
+            return NotFound();
 
-        var hasBankDetails = pro.PayoutMethod == "UPI"
-            ? !string.IsNullOrWhiteSpace(pro.UpiVpa)
-            : !string.IsNullOrWhiteSpace(pro.BankAccountNumber) && !string.IsNullOrWhiteSpace(pro.BankIfsc);
+        var pm = await _context.PaymentMethods
+            .Where(p => p.ProId == id && p.IsDefault)
+            .FirstOrDefaultAsync()
+            ?? await _context.PaymentMethods
+            .Where(p => p.ProId == id)
+            .OrderBy(p => p.CreatedAt)
+            .FirstOrDefaultAsync();
+
+        bool hasBankDetails = pm != null && (
+            pm.Type == "UPI"
+                ? !string.IsNullOrWhiteSpace(pm.UpiVpa)
+                : !string.IsNullOrWhiteSpace(pm.BankAccountNumber) && !string.IsNullOrWhiteSpace(pm.BankIfsc));
 
         return Ok(new ProBankDetailsDto
         {
-            PayoutMethod = pro.PayoutMethod,
-            BankAccountHolderName = pro.BankAccountHolderName,
-            BankAccountNumber = pro.BankAccountNumber,
-            BankIfsc = pro.BankIfsc,
-            UpiVpa = pro.UpiVpa,
+            PayoutMethod = pm?.Type,
+            BankAccountHolderName = pm?.BankAccountHolderName,
+            BankAccountNumber = pm?.BankAccountNumber,
+            BankIfsc = pm?.BankIfsc,
+            UpiVpa = pm?.UpiVpa,
             HasBankDetails = hasBankDetails
         });
     }
 
-    // PUT: api/pros/{id}/bank-details
+    // PUT: api/pros/{id}/bank-details — upserts the pro's default payout PaymentMethod
     [HttpPut("{id}/bank-details")]
     [Authorize(Roles = "Pro")]
     public async Task<IActionResult> UpdateBankDetails(int id, [FromBody] UpdateBankDetailsRequest request)
@@ -292,22 +301,37 @@ public class ProsController : ControllerBase
         var pro = await _context.Pros.FindAsync(id);
         if (pro == null) return NotFound();
 
-        bool detailsChanged =
-            pro.PayoutMethod != request.PayoutMethod ||
-            pro.BankAccountNumber != request.BankAccountNumber ||
-            pro.BankIfsc != request.BankIfsc ||
-            pro.UpiVpa != request.UpiVpa;
+        var pm = await _context.PaymentMethods
+            .Where(p => p.ProId == id && p.IsDefault)
+            .FirstOrDefaultAsync()
+            ?? await _context.PaymentMethods
+            .Where(p => p.ProId == id)
+            .OrderBy(p => p.CreatedAt)
+            .FirstOrDefaultAsync();
 
-        pro.PayoutMethod = request.PayoutMethod;
-        pro.BankAccountHolderName = request.BankAccountHolderName;
-        pro.BankAccountNumber = request.BankAccountNumber;
-        pro.BankIfsc = request.BankIfsc;
-        pro.UpiVpa = request.UpiVpa;
-        pro.UpdatedAt = DateTime.UtcNow;
+        bool detailsChanged = pm == null
+            || pm.Type != request.PayoutMethod
+            || pm.BankAccountNumber != request.BankAccountNumber
+            || pm.BankIfsc != request.BankIfsc
+            || pm.UpiVpa != request.UpiVpa;
+
+        if (pm == null)
+        {
+            pm = new PaymentMethod { ProId = id, IsDefault = true, CreatedAt = DateTime.UtcNow };
+            _context.PaymentMethods.Add(pm);
+        }
+
+        pm.Type = request.PayoutMethod;
+        pm.Label = request.PayoutMethod == "UPI" ? "UPI" : "Bank Account";
+        pm.BankAccountHolderName = request.BankAccountHolderName;
+        pm.BankAccountNumber = request.BankAccountNumber;
+        pm.BankIfsc = request.BankIfsc;
+        pm.UpiVpa = request.UpiVpa;
 
         if (detailsChanged)
-            pro.RazorpayFundAccountId = null;
+            pm.RazorpayFundAccountId = null;
 
+        pro.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
         var pendingPayouts = await _context.Payouts

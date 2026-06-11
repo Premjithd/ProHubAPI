@@ -25,15 +25,12 @@ public class User
 
     public string? UserType { get; set; } = "User";  // "User" or "Pro"
 
-    // Saved payment preference for checkout pre-fill
-    [StringLength(100)]
-    public string? UpiVpa { get; set; }
-
     // Address (normalized to Addresses table)
     public int? AddressId { get; set; }
     public Address? Address { get; set; }
 
     public ICollection<ProUserRelationship>? ProRelationships { get; set; }
+    public ICollection<PaymentMethod>? PaymentMethods { get; set; }
     public bool IsEmailVerified { get; set; }
     public bool IsPhoneVerified { get; set; }
     public int FailedLoginAttempts { get; set; }

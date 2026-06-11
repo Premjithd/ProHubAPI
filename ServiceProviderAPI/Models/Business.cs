@@ -29,4 +29,5 @@ public class Business
 
     public ICollection<ProBusinessMembership>? Members { get; set; }
     public ICollection<Service>? Services { get; set; }
+    public ICollection<PaymentMethod>? PaymentMethods { get; set; }
 }
