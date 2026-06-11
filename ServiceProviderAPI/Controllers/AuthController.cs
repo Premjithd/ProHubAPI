@@ -220,7 +220,7 @@ public class AuthController : ControllerBase
             Email = request.Email,
             PasswordHash = BC.HashPassword(request.Password),
             PhoneNumber = request.PhoneNumber,
-            BusinessName = request.BusinessName,
+            BusinessName = !string.IsNullOrWhiteSpace(request.BusinessName) ? request.BusinessName : request.Name,
             IsProfileComplete = false,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -272,6 +272,23 @@ public class AuthController : ControllerBase
         pro.AddressId = step2Address.Id;
         pro.IsProfileComplete = true;
         pro.UpdatedAt = DateTime.UtcNow;
+
+        if (request.BusinessId.HasValue)
+        {
+            var biz = await _context.Businesses.FindAsync(request.BusinessId.Value);
+            if (biz != null && biz.Status == "Pending")
+            {
+                biz.Status = "Active";
+                pro.BusinessName = biz.BusinessName;
+                _context.ProBusinessMemberships.Add(new ProBusinessMembership
+                {
+                    ProId = pro.Id,
+                    BusinessId = biz.Id,
+                    Role = "Owner",
+                    Status = "Active",
+                });
+            }
+        }
 
         await _context.SaveChangesAsync();
 
@@ -364,6 +381,77 @@ public class AuthController : ControllerBase
         catch (Exception ex)
         {
             return BadRequest(new { message = "Error processing invitation", error = ex.Message });
+        }
+    }
+
+    [HttpPost("pro-user/accept-invite")]
+    public async Task<ActionResult<LoginResponse>> AcceptProUserInvite([FromBody] AcceptProUserInviteRequest request)
+    {
+        if (string.IsNullOrEmpty(request.Token) || string.IsNullOrEmpty(request.Password)
+            || string.IsNullOrEmpty(request.FirstName) || string.IsNullOrEmpty(request.LastName))
+            return BadRequest(new { message = "Token, name, and password are required" });
+
+        try
+        {
+            var relationship = await _context.ProUserRelationships
+                .Include(r => r.Pro)
+                .FirstOrDefaultAsync(r => r.InviteToken == request.Token);
+
+            if (relationship == null)
+                return BadRequest(new { message = "Invalid invitation token" });
+
+            if (relationship.Status != "Pending")
+                return BadRequest(new { message = "This invitation has already been used or revoked" });
+
+            if (relationship.InviteExpiresAt <= DateTime.UtcNow)
+                return BadRequest(new { message = "This invitation has expired" });
+
+            if (await _context.Users.AnyAsync(u => u.Email == relationship.InviteEmail))
+                return BadRequest(new { message = "An account already exists for this email. Please log in instead." });
+
+            var pro = relationship.Pro;
+            var user = new User
+            {
+                Email = relationship.InviteEmail,
+                FirstName = request.FirstName,
+                LastName = request.LastName,
+                PasswordHash = BC.HashPassword(request.Password),
+                UserType = "User",
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            _context.Users.Add(user);
+            await _context.SaveChangesAsync();
+
+            // Activate the relationship
+            relationship.Status = "Active";
+            relationship.UserId = user.Id;
+            relationship.InviteToken = null;
+            relationship.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            var (token, _) = _jwtService.GenerateToken(user, "User");
+            var refresh = await CreateRefreshTokenAsync(user.Id, "User");
+
+            _logger.LogInformation("Pro-user invite accepted: {Email} joined {Business}", user.Email, pro?.BusinessName);
+
+            return new LoginResponse
+            {
+                Token = token,
+                RefreshToken = refresh.Token,
+                Role = "User",
+                Id = user.Id,
+                FirstName = user.FirstName,
+                LastName = user.LastName,
+                Email = user.Email,
+                IsProfileComplete = true
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error accepting pro-user invite");
+            return BadRequest(new { message = "Error processing invitation" });
         }
     }
 

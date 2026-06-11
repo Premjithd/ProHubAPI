@@ -3,154 +3,137 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ServiceProviderAPI.Data;
 using ServiceProviderAPI.Models;
+using ServiceProviderAPI.Services;
 using System.Security.Claims;
 
 namespace ServiceProviderAPI.Controllers;
 
 [ApiController]
-[Route("api/[controller]")]
-[Authorize]
+[Route("api/pro-users")]
+[Authorize(Roles = "Pro")]
 public class ProUsersController : ControllerBase
 {
     private readonly ApplicationDbContext _context;
+    private readonly IEmailService _emailService;
+    private readonly ILogger<ProUsersController> _logger;
 
-    public ProUsersController(ApplicationDbContext context)
+    public ProUsersController(
+        ApplicationDbContext context,
+        IEmailService emailService,
+        ILogger<ProUsersController> logger)
     {
         _context = context;
+        _emailService = emailService;
+        _logger = logger;
     }
 
-    private string? CallerId => User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-    private bool IsAdmin => User.IsInRole("Admin");
+    private int GetProId() =>
+        int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "0");
 
-    // Get all users under a pro — caller must be that Pro or an Admin
-    [HttpGet("pro/{proId}/users")]
-    public async Task<ActionResult<IEnumerable<UserDto>>> GetUsersUnderPro(int proId)
+    [HttpGet]
+    public async Task<IActionResult> GetMyUsers()
     {
-        if (!IsAdmin && CallerId != proId.ToString())
-            return Forbid();
-
-        var pro = await _context.Pros.FindAsync(proId);
-        if (pro == null)
-            return NotFound("Pro not found");
-
-        var users = await _context.AdminUsers
-            .Where(au => au.ProId == proId && au.UserId != null)
-            .Include(au => au.User)
-            .Select(au => new UserDto
+        var proId = GetProId();
+        var rows = await _context.ProUserRelationships
+            .Where(r => r.ProId == proId && r.Status != "Revoked")
+            .Include(r => r.User)
+            .OrderByDescending(r => r.CreatedAt)
+            .Select(r => new
             {
-                Id = au.User!.Id,
-                Name = $"{au.User.FirstName} {au.User.LastName}",
-                Email = au.User.Email,
-                PhoneNumber = au.User.PhoneNumber,
-                IsEmailVerified = au.User.IsEmailVerified,
-                IsPhoneVerified = au.User.IsPhoneVerified
+                r.Id,
+                r.Status,
+                r.InviteEmail,
+                r.CreatedAt,
+                user = r.User == null ? null : new
+                {
+                    r.User.Id,
+                    r.User.FirstName,
+                    r.User.LastName,
+                    r.User.Email,
+                    r.User.PhoneNumber,
+                    r.User.IsEmailVerified
+                }
             })
             .ToListAsync();
 
-        return Ok(users);
+        return Ok(rows);
     }
 
-    // Add a user under a pro — Admin only
-    [HttpPost("pro/{proId}/users")]
-    [Authorize(Roles = "Admin")]
-    public async Task<ActionResult> AddUserUnderPro(int proId, [FromBody] AddUserRequest request)
+    [HttpPost("invite")]
+    public async Task<IActionResult> InviteUser([FromBody] InviteProUserRequest request)
     {
+        if (string.IsNullOrWhiteSpace(request.Email))
+            return BadRequest(new { message = "Email is required" });
+
+        var proId = GetProId();
         var pro = await _context.Pros.FindAsync(proId);
-        if (pro == null)
-            return NotFound("Pro not found");
+        if (pro == null) return NotFound(new { message = "Pro not found" });
 
-        var user = await _context.Users.FindAsync(request.UserId);
-        if (user == null)
-            return NotFound("User not found");
+        var normalizedEmail = request.Email.Trim().ToLowerInvariant();
 
-        var existingRelation = await _context.AdminUsers
-            .FirstOrDefaultAsync(au => au.ProId == proId && au.UserId == request.UserId);
+        var existing = await _context.ProUserRelationships
+            .FirstOrDefaultAsync(r => r.ProId == proId
+                && r.InviteEmail == normalizedEmail
+                && r.Status != "Revoked");
 
-        if (existingRelation != null)
-            return BadRequest(new { message = "User is already linked to this pro" });
+        if (existing != null)
+            return BadRequest(new { message = "An invitation is already active for this email" });
 
-        _context.AdminUsers.Add(new AdminUser
+        var token = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
+        var relationship = new ProUserRelationship
         {
             ProId = proId,
-            UserId = request.UserId,
+            InviteEmail = normalizedEmail,
+            InviteToken = token,
+            InviteExpiresAt = DateTime.UtcNow.AddDays(7),
+            Status = "Pending",
             CreatedAt = DateTime.UtcNow
-        });
+        };
+
+        _context.ProUserRelationships.Add(relationship);
         await _context.SaveChangesAsync();
 
-        return Ok(new { message = "User linked successfully" });
+        try
+        {
+            var baseUrl = request.BaseUrl?.TrimEnd('/') ?? "https://app.yprohub.com";
+            var inviteUrl = $"{baseUrl}/accept-pro-user-invite?token={token}";
+            await _emailService.SendEmailAsync(
+                normalizedEmail,
+                $"You're invited to join {pro.BusinessName} on yProHub",
+                $@"<p>Hi,</p>
+                   <p><strong>{pro.ProName}</strong> from <strong>{pro.BusinessName}</strong> has invited you to join their team on yProHub.</p>
+                   <p>Click below to create your account. This invite expires in 7 days.</p>
+                   <p><a href=""{inviteUrl}"">Accept Invitation</a></p>
+                   <p>If you weren't expecting this, you can safely ignore this email.</p>");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Invite email failed for {Email}: {Msg}", normalizedEmail, ex.Message);
+        }
+
+        return Ok(new { message = "Invitation sent", id = relationship.Id });
     }
 
-    // Remove a user from a pro — caller must be that Pro or an Admin
-    [HttpDelete("pro/{proId}/users/{userId}")]
-    public async Task<ActionResult> RemoveUserFromPro(int proId, int userId)
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> RevokeUser(int id)
     {
-        if (!IsAdmin && CallerId != proId.ToString())
-            return Forbid();
+        var proId = GetProId();
+        var relationship = await _context.ProUserRelationships
+            .FirstOrDefaultAsync(r => r.Id == id && r.ProId == proId);
 
-        var adminUser = await _context.AdminUsers
-            .FirstOrDefaultAsync(au => au.ProId == proId && au.UserId == userId);
+        if (relationship == null)
+            return NotFound(new { message = "Relationship not found" });
 
-        if (adminUser == null)
-            return NotFound("Relationship not found");
-
-        _context.AdminUsers.Remove(adminUser);
+        relationship.Status = "Revoked";
+        relationship.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
-        return Ok(new { message = "User unlinked successfully" });
-    }
-
-    // Get all pros for a user — caller must be that User or an Admin
-    [HttpGet("user/{userId}/pros")]
-    public async Task<ActionResult<IEnumerable<ProDto>>> GetProsForUser(int userId)
-    {
-        if (!IsAdmin && CallerId != userId.ToString())
-            return Forbid();
-
-        var user = await _context.Users.FindAsync(userId);
-        if (user == null)
-            return NotFound("User not found");
-
-        var pros = await _context.AdminUsers
-            .Where(au => au.UserId == userId && au.ProId != null)
-            .Include(au => au.Pro)
-            .Select(au => new ProDto
-            {
-                Id = au.Pro!.Id,
-                Name = au.Pro.ProName,
-                Email = au.Pro.Email,
-                PhoneNumber = au.Pro.PhoneNumber,
-                BusinessName = au.Pro.BusinessName,
-                IsEmailVerified = au.Pro.IsEmailVerified,
-                IsPhoneVerified = au.Pro.IsPhoneVerified
-            })
-            .ToListAsync();
-
-        return Ok(pros);
+        return Ok(new { message = "User removed from your team" });
     }
 }
 
-public class AddUserRequest
+public class InviteProUserRequest
 {
-    public int UserId { get; set; }
-}
-
-public class UserDto
-{
-    public int Id { get; set; }
-    public string Name { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
-    public string PhoneNumber { get; set; } = string.Empty;
-    public bool IsEmailVerified { get; set; }
-    public bool IsPhoneVerified { get; set; }
-}
-
-public class ProDto
-{
-    public int Id { get; set; }
-    public string Name { get; set; } = string.Empty;
-    public string Email { get; set; } = string.Empty;
-    public string PhoneNumber { get; set; } = string.Empty;
-    public string BusinessName { get; set; } = string.Empty;
-    public bool IsEmailVerified { get; set; }
-    public bool IsPhoneVerified { get; set; }
+    public string? BaseUrl { get; set; }
 }

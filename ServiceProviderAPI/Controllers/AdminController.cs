@@ -175,9 +175,9 @@ public class AdminController : ControllerBase
 
         try
         {
-            // Check if email is already used by an admin
-            var existingAdmin = await _context.AdminUsers
-                .FirstOrDefaultAsync(a => a.Email == request.Email);
+            // Check if email is already registered as an admin
+            var existingAdmin = await _context.Users
+                .FirstOrDefaultAsync(u => u.Email == request.Email && u.UserType == "Admin");
 
             if (existingAdmin != null)
                 return BadRequest(new { message = "This email is already associated with an admin account" });

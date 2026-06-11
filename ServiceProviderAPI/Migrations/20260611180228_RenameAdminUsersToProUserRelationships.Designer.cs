@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ServiceProviderAPI.Data;
 
@@ -11,9 +12,11 @@ using ServiceProviderAPI.Data;
 namespace ServiceProviderAPI.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260611180228_RenameAdminUsersToProUserRelationships")]
+    partial class RenameAdminUsersToProUserRelationships
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -145,48 +148,6 @@ namespace ServiceProviderAPI.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("AppSettings");
-                });
-
-            modelBuilder.Entity("ServiceProviderAPI.Models.Business", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("AddressId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("BusinessName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
-
-                    b.Property<string>("Phone")
-                        .HasMaxLength(30)
-                        .HasColumnType("nvarchar(30)");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AddressId");
-
-                    b.ToTable("Businesses");
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.Job", b =>
@@ -895,42 +856,6 @@ namespace ServiceProviderAPI.Migrations
                     b.ToTable("Pros");
                 });
 
-            modelBuilder.Entity("ServiceProviderAPI.Models.ProBusinessMembership", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("BusinessId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("JoinedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("ProId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Role")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("BusinessId");
-
-                    b.HasIndex("ProId", "BusinessId")
-                        .IsUnique()
-                        .HasDatabaseName("IX_ProBusinessMemberships_ProId_BusinessId");
-
-                    b.ToTable("ProBusinessMemberships");
-                });
-
             modelBuilder.Entity("ServiceProviderAPI.Models.ProUserRelationship", b =>
                 {
                     b.Property<int>("Id")
@@ -1093,9 +1018,6 @@ namespace ServiceProviderAPI.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<int?>("BusinessId")
-                        .HasColumnType("int");
-
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
@@ -1126,8 +1048,6 @@ namespace ServiceProviderAPI.Migrations
                         .HasColumnType("datetime2");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("BusinessId");
 
                     b.HasIndex("ProId");
 
@@ -1361,17 +1281,6 @@ namespace ServiceProviderAPI.Migrations
                     b.ToTable("VerificationCodes");
                 });
 
-            modelBuilder.Entity("ServiceProviderAPI.Models.Business", b =>
-                {
-                    b.HasOne("ServiceProviderAPI.Models.Address", "Address")
-                        .WithMany()
-                        .HasForeignKey("AddressId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Address");
-                });
-
             modelBuilder.Entity("ServiceProviderAPI.Models.Job", b =>
                 {
                     b.HasOne("ServiceProviderAPI.Models.Pro", "AssignedPro")
@@ -1552,25 +1461,6 @@ namespace ServiceProviderAPI.Migrations
                     b.Navigation("Address");
                 });
 
-            modelBuilder.Entity("ServiceProviderAPI.Models.ProBusinessMembership", b =>
-                {
-                    b.HasOne("ServiceProviderAPI.Models.Business", "Business")
-                        .WithMany("Members")
-                        .HasForeignKey("BusinessId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("ServiceProviderAPI.Models.Pro", "Pro")
-                        .WithMany("BusinessMemberships")
-                        .HasForeignKey("ProId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Business");
-
-                    b.Navigation("Pro");
-                });
-
             modelBuilder.Entity("ServiceProviderAPI.Models.ProUserRelationship", b =>
                 {
                     b.HasOne("ServiceProviderAPI.Models.Pro", "Pro")
@@ -1618,11 +1508,6 @@ namespace ServiceProviderAPI.Migrations
 
             modelBuilder.Entity("ServiceProviderAPI.Models.Service", b =>
                 {
-                    b.HasOne("ServiceProviderAPI.Models.Business", "Business")
-                        .WithMany("Services")
-                        .HasForeignKey("BusinessId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("ServiceProviderAPI.Models.Pro", "Pro")
                         .WithMany("Services")
                         .HasForeignKey("ProId")
@@ -1632,8 +1517,6 @@ namespace ServiceProviderAPI.Migrations
                     b.HasOne("ServiceProviderAPI.Models.ServiceCategory", "ServiceCategory")
                         .WithMany()
                         .HasForeignKey("ServiceCategoryId");
-
-                    b.Navigation("Business");
 
                     b.Navigation("Pro");
 
@@ -1677,13 +1560,6 @@ namespace ServiceProviderAPI.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("ServiceProviderAPI.Models.Business", b =>
-                {
-                    b.Navigation("Members");
-
-                    b.Navigation("Services");
-                });
-
             modelBuilder.Entity("ServiceProviderAPI.Models.MessageIndex", b =>
                 {
                     b.Navigation("Messages");
@@ -1691,8 +1567,6 @@ namespace ServiceProviderAPI.Migrations
 
             modelBuilder.Entity("ServiceProviderAPI.Models.Pro", b =>
                 {
-                    b.Navigation("BusinessMemberships");
-
                     b.Navigation("ProUsers");
 
                     b.Navigation("Services");

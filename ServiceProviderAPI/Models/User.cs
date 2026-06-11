@@ -33,7 +33,7 @@ public class User
     public int? AddressId { get; set; }
     public Address? Address { get; set; }
 
-    public ICollection<AdminUser>? AdminUsers { get; set; }
+    public ICollection<ProUserRelationship>? ProRelationships { get; set; }
     public bool IsEmailVerified { get; set; }
     public bool IsPhoneVerified { get; set; }
     public int FailedLoginAttempts { get; set; }

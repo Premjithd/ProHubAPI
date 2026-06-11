@@ -53,6 +53,24 @@ public class AcceptAdminInvitationRequest
     public string Password { get; set; }
 }
 
+public class AcceptProUserInviteRequest
+{
+    [Required]
+    public string Token { get; set; } = null!;
+
+    [Required]
+    [StringLength(100, MinimumLength = 2)]
+    public string FirstName { get; set; } = null!;
+
+    [Required]
+    [StringLength(100, MinimumLength = 2)]
+    public string LastName { get; set; } = null!;
+
+    [Required]
+    [StringLength(255, MinimumLength = 6)]
+    public string Password { get; set; } = null!;
+}
+
 public class ForgotPasswordRequest
 {
     [Required]

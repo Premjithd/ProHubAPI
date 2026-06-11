@@ -54,7 +54,8 @@ public class Pro
     public Address? Address { get; set; }
 
     public ICollection<Service>? Services { get; set; }
-    public ICollection<AdminUser>? AdminUsers { get; set; }
+    public ICollection<ProUserRelationship>? ProUsers { get; set; }
+    public ICollection<ProBusinessMembership>? BusinessMemberships { get; set; }
     // KYC Documents
     [StringLength(500)]
     public string? AadhaarDocumentPath { get; set; }

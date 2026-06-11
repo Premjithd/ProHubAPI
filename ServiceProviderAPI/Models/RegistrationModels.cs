@@ -19,9 +19,8 @@ public class ProRegistrationStep1Request
     [Phone]
     public string PhoneNumber { get; set; }
 
-    [Required]
     [StringLength(100)]
-    public string BusinessName { get; set; }
+    public string? BusinessName { get; set; }
 }
 
 public class ProRegistrationStep2Request
@@ -58,6 +57,9 @@ public class ProRegistrationStep2Request
 
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
+
+    // Optional: link to a pre-registered Business
+    public int? BusinessId { get; set; }
 }
 
 public class UserRegistrationStep1Request

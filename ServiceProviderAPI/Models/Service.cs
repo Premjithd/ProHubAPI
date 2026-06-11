@@ -20,7 +20,10 @@ public class Service
 
     public int ProId { get; set; }
     public Pro? Pro { get; set; }
-    
+
+    public int? BusinessId { get; set; }
+    public Business? Business { get; set; }
+
     public int? ServiceCategoryId { get; set; }
     public ServiceCategory? ServiceCategory { get; set; }
     

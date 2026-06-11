@@ -15,7 +15,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<User> Users { get; set; }
     public DbSet<Service> Services { get; set; }
     public DbSet<ServiceCategory> ServiceCategories { get; set; }
-    public DbSet<AdminUser> AdminUsers { get; set; }
+    public DbSet<ProUserRelationship> ProUserRelationships { get; set; }
     public DbSet<AdminInvitation> AdminInvitations { get; set; }
     public DbSet<VerificationCode> VerificationCodes { get; set; }
     public DbSet<Job> Jobs { get; set; }
@@ -35,6 +35,8 @@ public class ApplicationDbContext : DbContext
     public DbSet<ServiceArea> ServiceAreas { get; set; }
     public DbSet<Payout> Payouts { get; set; }
     public DbSet<AppSetting> AppSettings { get; set; }
+    public DbSet<Business> Businesses { get; set; }
+    public DbSet<ProBusinessMembership> ProBusinessMemberships { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -61,22 +63,24 @@ public class ApplicationDbContext : DbContext
             .IsRequired(false)
             .OnDelete(DeleteBehavior.SetNull);
 
-        modelBuilder.Entity<AdminUser>()
-            .HasKey(au => au.Id);
+        modelBuilder.Entity<ProUserRelationship>()
+            .HasOne(r => r.Pro)
+            .WithMany(p => p.ProUsers)
+            .HasForeignKey(r => r.ProId)
+            .OnDelete(DeleteBehavior.Cascade);
 
-        modelBuilder.Entity<AdminUser>()
-            .HasOne(au => au.Pro)
-            .WithMany(p => p.AdminUsers)
-            .HasForeignKey(au => au.ProId)
+        modelBuilder.Entity<ProUserRelationship>()
+            .HasOne(r => r.User)
+            .WithMany(u => u.ProRelationships)
+            .HasForeignKey(r => r.UserId)
             .IsRequired(false)
             .OnDelete(DeleteBehavior.SetNull);
 
-        modelBuilder.Entity<AdminUser>()
-            .HasOne(au => au.User)
-            .WithMany(u => u.AdminUsers)
-            .HasForeignKey(au => au.UserId)
-            .IsRequired(false)
-            .OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<ProUserRelationship>()
+            .HasIndex(r => r.InviteToken)
+            .IsUnique()
+            .HasFilter("[InviteToken] IS NOT NULL")
+            .HasDatabaseName("IX_ProUserRelationships_InviteToken");
 
         modelBuilder.Entity<AdminInvitation>()
             .HasIndex(ai => ai.Token)
@@ -271,5 +275,35 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<Payout>()
             .Property(p => p.Amount)
             .HasPrecision(18, 2);
+
+        modelBuilder.Entity<Business>()
+            .HasOne(b => b.Address)
+            .WithMany()
+            .HasForeignKey(b => b.AddressId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<ProBusinessMembership>()
+            .HasOne(m => m.Pro)
+            .WithMany(p => p.BusinessMemberships)
+            .HasForeignKey(m => m.ProId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<ProBusinessMembership>()
+            .HasOne(m => m.Business)
+            .WithMany(b => b.Members)
+            .HasForeignKey(m => m.BusinessId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<ProBusinessMembership>()
+            .HasIndex(m => new { m.ProId, m.BusinessId })
+            .IsUnique()
+            .HasDatabaseName("IX_ProBusinessMemberships_ProId_BusinessId");
+
+        modelBuilder.Entity<Service>()
+            .HasOne(s => s.Business)
+            .WithMany(b => b.Services)
+            .HasForeignKey(s => s.BusinessId)
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }
