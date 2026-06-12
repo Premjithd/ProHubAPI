@@ -162,9 +162,9 @@ try
     builder.Services.AddSwaggerGen();
 
     Console.WriteLine("🚦 Adding rate limiting...");
-    // Auth rate limits are relaxed in Development so local e2e test suites
-    // (which log in repeatedly) aren't throttled. Production keeps strict limits.
-    var isDevEnv = builder.Environment.IsDevelopment();
+    // Auth rate limits are relaxed in Development and Test so local e2e test
+    // suites (which log in repeatedly) aren't throttled. Production keeps strict limits.
+    var isDevEnv = builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Test");
 
     builder.Services.AddRateLimiter(options =>
     {
@@ -223,7 +223,8 @@ try
                     "http://localhost:4200",
                     "http://localhost",
                     "capacitor://localhost",
-                    "https://localhost"
+                    "https://localhost",
+                    "https://yprohubui-crc0hxcnfwfxa6fn.southindia-01.azurewebsites.net"
                 )
                   .AllowAnyHeader()
                   .AllowAnyMethod()

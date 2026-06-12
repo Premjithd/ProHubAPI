@@ -36,29 +36,70 @@ public class SeedDataService
                 _logger.LogInformation("Seeded initial service area: Thiruvananthapuram, Kerala, India");
             }
 
-            // Check if already seeded
-            if (_context.ServiceCategories.Any())
+            _logger.LogInformation("Starting database seeding...");
+
+            // Seed Service Categories — idempotent: adds any canonical category that
+            // isn't already present, so existing databases top up on restart.
+            var canonicalCategories = new[]
             {
-                _logger.LogInformation("Database already seeded, skipping.");
+                new ServiceCategory { Name = "Cleaning", Description = "Home and office cleaning", Icon = "🧹", IsActive = true },
+                new ServiceCategory { Name = "Plumbing", Description = "Plumbing repairs and installations", Icon = "🔧", IsActive = true },
+                new ServiceCategory { Name = "Electrical", Description = "Electrical work and installations", Icon = "⚡", IsActive = true },
+                new ServiceCategory { Name = "Painting", Description = "Interior and exterior painting", Icon = "🎨", IsActive = true },
+                new ServiceCategory { Name = "Landscaping", Description = "Landscaping and garden design", Icon = "🌿", IsActive = true },
+                new ServiceCategory { Name = "Handyman", Description = "A category for general handy man task", Icon = "🔨", IsActive = true },
+                new ServiceCategory { Name = "Cooking", Description = "New category for Cooking related task", Icon = "👨‍🍳", IsActive = true },
+                new ServiceCategory { Name = "Pest Control", Description = "Pest control and extermination services", Icon = "🐜", IsActive = true },
+                new ServiceCategory { Name = "AC & Appliance Repair", Description = "Air conditioning and home appliance repair", Icon = "❄️", IsActive = true },
+                new ServiceCategory { Name = "Interior Design", Description = "Home and office interior design and decoration", Icon = "🏗️", IsActive = true },
+                new ServiceCategory { Name = "Hair & Beauty", Description = "Hair styling, makeup and beauty services", Icon = "💇", IsActive = true },
+                new ServiceCategory { Name = "Massage & Spa", Description = "Therapeutic massage and spa treatments", Icon = "💆", IsActive = true },
+                new ServiceCategory { Name = "Yoga & Fitness", Description = "Personal training, yoga and fitness coaching", Icon = "🧘", IsActive = true },
+                new ServiceCategory { Name = "Babysitting & Childcare", Description = "Trusted babysitting and childcare services", Icon = "👶", IsActive = true },
+                new ServiceCategory { Name = "Pet Care", Description = "Pet grooming, sitting and veterinary assistance", Icon = "🐾", IsActive = true },
+                new ServiceCategory { Name = "Tutoring", Description = "Academic tutoring and coaching for all levels", Icon = "📚", IsActive = true },
+                new ServiceCategory { Name = "IT Support & Repair", Description = "Computer setup, troubleshooting and IT support", Icon = "💻", IsActive = true },
+                new ServiceCategory { Name = "Phone & Laptop Repair", Description = "Screen replacements, battery and hardware repairs", Icon = "📱", IsActive = true },
+                new ServiceCategory { Name = "Music Lessons", Description = "Guitar, keyboard, vocals and other instruments", Icon = "🎸", IsActive = true },
+                new ServiceCategory { Name = "Photography & Videography", Description = "Event photography, portraits and video production", Icon = "📷", IsActive = true },
+                new ServiceCategory { Name = "Vehicle Repair & Service", Description = "Car, bike and auto repair and maintenance", Icon = "🚗", IsActive = true },
+                new ServiceCategory { Name = "Real Estate & Vastu", Description = "Property consulting, staging and Vastu services", Icon = "🏠", IsActive = true },
+                new ServiceCategory { Name = "Movers & Packers", Description = "Home and office relocation and packing services", Icon = "📦", IsActive = true },
+                new ServiceCategory { Name = "Security & CCTV", Description = "CCTV installation and security system setup", Icon = "🔒", IsActive = true },
+                new ServiceCategory { Name = "Gardening & Landscaping", Description = "Garden maintenance, landscaping and planting", Icon = "🌿", IsActive = true },
+                new ServiceCategory { Name = "Catering & Cooking", Description = "Home catering, personal chefs and cooking services", Icon = "🍳", IsActive = true },
+                new ServiceCategory { Name = "Masonry & Tiling", Description = "Brick work, plastering and tile installation", Icon = "🧱", IsActive = true },
+                new ServiceCategory { Name = "Waterproofing", Description = "Roof, terrace and basement waterproofing", Icon = "🪣", IsActive = true },
+                new ServiceCategory { Name = "Bathroom Renovation", Description = "Full bathroom remodelling and fixture installation", Icon = "🚿", IsActive = true },
+                new ServiceCategory { Name = "Locksmith", Description = "Lock installation, repair and emergency unlock", Icon = "🔑", IsActive = true },
+                new ServiceCategory { Name = "Other", Description = "Something that doesn't come under any of the listed categories.", Icon = "➕", IsActive = true },
+            };
+
+            var existingCategoryNames = _context.ServiceCategories.Select(c => c.Name).ToList();
+            var missingCategories = canonicalCategories
+                .Where(c => !existingCategoryNames.Contains(c.Name))
+                .ToArray();
+            if (missingCategories.Length > 0)
+            {
+                await _context.ServiceCategories.AddRangeAsync(missingCategories);
+                await _context.SaveChangesAsync();
+                _logger.LogInformation($"Seeded {missingCategories.Length} service categories");
+            }
+            else
+            {
+                _logger.LogInformation("Service categories already up to date");
+            }
+
+            // Demo data below (materials + sample pros) is only for a fresh local
+            // database — skip once it has been seeded.
+            if (_context.Materials.Any())
+            {
+                _logger.LogInformation("Demo data already present, skipping materials and sample pros.");
                 return;
             }
 
-            _logger.LogInformation("Starting database seeding...");
-
-            // Seed Service Categories
-            var categories = new[]
-            {
-                new ServiceCategory { Name = "Plumbing", Description = "Plumbing repairs and installations", IsActive = true },
-                new ServiceCategory { Name = "Electrical", Description = "Electrical work and installations", IsActive = true },
-                new ServiceCategory { Name = "Carpentry", Description = "Carpentry and wood work", IsActive = true },
-                new ServiceCategory { Name = "Painting", Description = "Interior and exterior painting", IsActive = true },
-                new ServiceCategory { Name = "Cleaning", Description = "Home and office cleaning", IsActive = true },
-            };
-
-            await _context.ServiceCategories.AddRangeAsync(categories);
-            await _context.SaveChangesAsync();
-
-            _logger.LogInformation($"Seeded {categories.Length} service categories");
+            // Load categories with their assigned Ids for the material seeding below.
+            var categories = _context.ServiceCategories.ToList();
 
             // Seed Materials by Category
             var materials = new List<Material>();

@@ -12,8 +12,8 @@ using ServiceProviderAPI.Data;
 namespace ServiceProviderAPI.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260610065528_AddKycFieldsToPro")]
-    partial class AddKycFieldsToPro
+    [Migration("20260612161152_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -125,60 +125,6 @@ namespace ServiceProviderAPI.Migrations
                     b.ToTable("AdminInvitations");
                 });
 
-            modelBuilder.Entity("ServiceProviderAPI.Models.AdminUser", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Email")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("FirstName")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<bool>("IsEmailVerified")
-                        .HasColumnType("bit");
-
-                    b.Property<bool>("IsPhoneVerified")
-                        .HasColumnType("bit");
-
-                    b.Property<string>("LastName")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("PasswordHash")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("PhoneNumber")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<int?>("ProId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int?>("UserId")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProId");
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("AdminUsers");
-                });
-
             modelBuilder.Entity("ServiceProviderAPI.Models.AppSetting", b =>
                 {
                     b.Property<int>("Id")
@@ -202,6 +148,48 @@ namespace ServiceProviderAPI.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("AppSettings");
+                });
+
+            modelBuilder.Entity("ServiceProviderAPI.Models.Business", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("AddressId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("BusinessName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("Phone")
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AddressId");
+
+                    b.ToTable("Businesses");
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.Job", b =>
@@ -742,6 +730,73 @@ namespace ServiceProviderAPI.Migrations
                     b.ToTable("Payments");
                 });
 
+            modelBuilder.Entity("ServiceProviderAPI.Models.PaymentMethod", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("BankAccountHolderName")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("BankAccountNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("BankIfsc")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<int?>("BusinessId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Label")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int?>("ProId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("RazorpayContactId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("RazorpayFundAccountId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<string>("UpiVpa")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int?>("UserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessId");
+
+                    b.HasIndex("ProId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("PaymentMethods");
+                });
+
             modelBuilder.Entity("ServiceProviderAPI.Models.Payout", b =>
                 {
                     b.Property<int>("Id")
@@ -812,20 +867,12 @@ namespace ServiceProviderAPI.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("AadhaarDocumentPath")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
                     b.Property<int?>("AddressId")
                         .HasColumnType("int");
-
-                    b.Property<string>("BankAccountHolderName")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<string>("BankAccountNumber")
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<string>("BankIfsc")
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
 
                     b.Property<string>("BusinessName")
                         .IsRequired()
@@ -850,15 +897,23 @@ namespace ServiceProviderAPI.Migrations
                     b.Property<bool>("IsProfileComplete")
                         .HasColumnType("bit");
 
+                    b.Property<string>("KycStatus")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<DateTime?>("KycSubmittedAt")
+                        .HasColumnType("datetime2");
+
                     b.Property<DateTime?>("LockoutUntil")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("PanDocumentPath")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
                     b.Property<string>("PasswordHash")
                         .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("PayoutMethod")
-                        .HasMaxLength(10)
-                        .HasColumnType("nvarchar(10)");
 
                     b.Property<string>("PhoneNumber")
                         .IsRequired()
@@ -869,29 +924,101 @@ namespace ServiceProviderAPI.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
-                    b.Property<string>("RazorpayContactId")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<string>("RazorpayFundAccountId")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
                     b.Property<int>("ServiceRadiusKm")
                         .HasColumnType("int");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<string>("UpiVpa")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
                     b.HasKey("Id");
 
                     b.HasIndex("AddressId");
 
                     b.ToTable("Pros");
+                });
+
+            modelBuilder.Entity("ServiceProviderAPI.Models.ProBusinessMembership", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BusinessId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("JoinedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("ProId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessId");
+
+                    b.HasIndex("ProId", "BusinessId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_ProBusinessMemberships_ProId_BusinessId");
+
+                    b.ToTable("ProBusinessMemberships");
+                });
+
+            modelBuilder.Entity("ServiceProviderAPI.Models.ProUserRelationship", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("InviteEmail")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("InviteExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("InviteToken")
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<int>("ProId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("UserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InviteToken")
+                        .IsUnique()
+                        .HasDatabaseName("IX_ProUserRelationships_InviteToken")
+                        .HasFilter("[InviteToken] IS NOT NULL");
+
+                    b.HasIndex("ProId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("ProUserRelationships");
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.RefreshToken", b =>
@@ -1008,6 +1135,9 @@ namespace ServiceProviderAPI.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("BusinessId")
+                        .HasColumnType("int");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
@@ -1038,6 +1168,8 @@ namespace ServiceProviderAPI.Migrations
                         .HasColumnType("datetime2");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("BusinessId");
 
                     b.HasIndex("ProId");
 
@@ -1179,10 +1311,6 @@ namespace ServiceProviderAPI.Migrations
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<string>("UpiVpa")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
                     b.Property<string>("UserType")
                         .HasColumnType("nvarchar(max)");
 
@@ -1271,21 +1399,15 @@ namespace ServiceProviderAPI.Migrations
                     b.ToTable("VerificationCodes");
                 });
 
-            modelBuilder.Entity("ServiceProviderAPI.Models.AdminUser", b =>
+            modelBuilder.Entity("ServiceProviderAPI.Models.Business", b =>
                 {
-                    b.HasOne("ServiceProviderAPI.Models.Pro", "Pro")
-                        .WithMany("AdminUsers")
-                        .HasForeignKey("ProId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                    b.HasOne("ServiceProviderAPI.Models.Address", "Address")
+                        .WithMany()
+                        .HasForeignKey("AddressId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
 
-                    b.HasOne("ServiceProviderAPI.Models.User", "User")
-                        .WithMany("AdminUsers")
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("Pro");
-
-                    b.Navigation("User");
+                    b.Navigation("Address");
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.Job", b =>
@@ -1415,18 +1537,42 @@ namespace ServiceProviderAPI.Migrations
                     b.HasOne("ServiceProviderAPI.Models.Job", "Job")
                         .WithMany()
                         .HasForeignKey("JobId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired();
 
                     b.HasOne("ServiceProviderAPI.Models.User", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired();
 
                     b.Navigation("Bid");
 
                     b.Navigation("Job");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("ServiceProviderAPI.Models.PaymentMethod", b =>
+                {
+                    b.HasOne("ServiceProviderAPI.Models.Business", "Business")
+                        .WithMany("PaymentMethods")
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("ServiceProviderAPI.Models.Pro", "Pro")
+                        .WithMany("PaymentMethods")
+                        .HasForeignKey("ProId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("ServiceProviderAPI.Models.User", "User")
+                        .WithMany("PaymentMethods")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("Business");
+
+                    b.Navigation("Pro");
 
                     b.Navigation("User");
                 });
@@ -1468,6 +1614,43 @@ namespace ServiceProviderAPI.Migrations
                     b.Navigation("Address");
                 });
 
+            modelBuilder.Entity("ServiceProviderAPI.Models.ProBusinessMembership", b =>
+                {
+                    b.HasOne("ServiceProviderAPI.Models.Business", "Business")
+                        .WithMany("Members")
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ServiceProviderAPI.Models.Pro", "Pro")
+                        .WithMany("BusinessMemberships")
+                        .HasForeignKey("ProId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Business");
+
+                    b.Navigation("Pro");
+                });
+
+            modelBuilder.Entity("ServiceProviderAPI.Models.ProUserRelationship", b =>
+                {
+                    b.HasOne("ServiceProviderAPI.Models.Pro", "Pro")
+                        .WithMany("ProUsers")
+                        .HasForeignKey("ProId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ServiceProviderAPI.Models.User", "User")
+                        .WithMany("ProRelationships")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Pro");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("ServiceProviderAPI.Models.Review", b =>
                 {
                     b.HasOne("ServiceProviderAPI.Models.Job", "Job")
@@ -1497,6 +1680,11 @@ namespace ServiceProviderAPI.Migrations
 
             modelBuilder.Entity("ServiceProviderAPI.Models.Service", b =>
                 {
+                    b.HasOne("ServiceProviderAPI.Models.Business", "Business")
+                        .WithMany("Services")
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("ServiceProviderAPI.Models.Pro", "Pro")
                         .WithMany("Services")
                         .HasForeignKey("ProId")
@@ -1506,6 +1694,8 @@ namespace ServiceProviderAPI.Migrations
                     b.HasOne("ServiceProviderAPI.Models.ServiceCategory", "ServiceCategory")
                         .WithMany()
                         .HasForeignKey("ServiceCategoryId");
+
+                    b.Navigation("Business");
 
                     b.Navigation("Pro");
 
@@ -1549,6 +1739,15 @@ namespace ServiceProviderAPI.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("ServiceProviderAPI.Models.Business", b =>
+                {
+                    b.Navigation("Members");
+
+                    b.Navigation("PaymentMethods");
+
+                    b.Navigation("Services");
+                });
+
             modelBuilder.Entity("ServiceProviderAPI.Models.MessageIndex", b =>
                 {
                     b.Navigation("Messages");
@@ -1556,14 +1755,20 @@ namespace ServiceProviderAPI.Migrations
 
             modelBuilder.Entity("ServiceProviderAPI.Models.Pro", b =>
                 {
-                    b.Navigation("AdminUsers");
+                    b.Navigation("BusinessMemberships");
+
+                    b.Navigation("PaymentMethods");
+
+                    b.Navigation("ProUsers");
 
                     b.Navigation("Services");
                 });
 
             modelBuilder.Entity("ServiceProviderAPI.Models.User", b =>
                 {
-                    b.Navigation("AdminUsers");
+                    b.Navigation("PaymentMethods");
+
+                    b.Navigation("ProRelationships");
                 });
 #pragma warning restore 612, 618
         }

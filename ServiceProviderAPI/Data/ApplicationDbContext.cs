@@ -141,7 +141,10 @@ public class ApplicationDbContext : DbContext
             .HasOne(p => p.Job)
             .WithMany()
             .HasForeignKey(p => p.JobId)
-            .OnDelete(DeleteBehavior.Cascade);
+            // NoAction avoids a multiple-cascade-path conflict: User already
+            // cascades to both Job and Payment, so cascading Job->Payment too
+            // creates two delete paths into Payments (rejected by SQL Server).
+            .OnDelete(DeleteBehavior.NoAction);
 
         modelBuilder.Entity<Payment>()
             .HasOne(p => p.Bid)
@@ -153,7 +156,9 @@ public class ApplicationDbContext : DbContext
             .HasOne(p => p.User)
             .WithMany()
             .HasForeignKey(p => p.UserId)
-            .OnDelete(DeleteBehavior.Cascade);
+            // NoAction to avoid multiple cascade paths into Payments (a financial
+            // record we don't want auto-deleted with the user anyway).
+            .OnDelete(DeleteBehavior.NoAction);
 
         // Material entity configurations (Phase 1D)
         modelBuilder.Entity<Material>()
