@@ -162,6 +162,10 @@ try
     builder.Services.AddSwaggerGen();
 
     Console.WriteLine("🚦 Adding rate limiting...");
+    // Auth rate limits are relaxed in Development so local e2e test suites
+    // (which log in repeatedly) aren't throttled. Production keeps strict limits.
+    var isDevEnv = builder.Environment.IsDevelopment();
+
     builder.Services.AddRateLimiter(options =>
     {
         options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -179,7 +183,7 @@ try
                 partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
                 factory: _ => new FixedWindowRateLimiterOptions
                 {
-                    PermitLimit = 5,
+                    PermitLimit = isDevEnv ? 200 : 5,
                     Window = TimeSpan.FromMinutes(1),
                     QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                     QueueLimit = 0
@@ -191,7 +195,7 @@ try
                 partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
                 factory: _ => new FixedWindowRateLimiterOptions
                 {
-                    PermitLimit = 3,
+                    PermitLimit = isDevEnv ? 200 : 3,
                     Window = TimeSpan.FromMinutes(5),
                     QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                     QueueLimit = 0
