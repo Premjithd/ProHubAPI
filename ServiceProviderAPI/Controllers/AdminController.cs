@@ -5,6 +5,7 @@ using ServiceProviderAPI.Data;
 using ServiceProviderAPI.Models;
 using ServiceProviderAPI.Services;
 using ServiceProviderAPI.Services.Abstractions;
+using System.Security.Claims;
 using System.Text.Json.Serialization;
 
 namespace ServiceProviderAPI.Controllers;
@@ -661,12 +662,82 @@ public class AdminController : ControllerBase
         return Ok(disputes);
     }
 
+    // GET: api/admin/disputes/resolved — history of resolved disputes, with optional
+    // date range (on ResolvedAt) and free-text search over job title / party name / email.
+    [HttpGet("disputes/resolved")]
+    public async Task<ActionResult<IEnumerable<object>>> GetResolvedDisputes(
+        [FromQuery] DateTime? from, [FromQuery] DateTime? to, [FromQuery] string? search)
+    {
+        var query = _context.JobCompletions
+            .Where(c => c.DisputedAt != null && c.ResolvedAt != null && c.Status != "Disputed")
+            .Include(c => c.Job)
+                .ThenInclude(j => j!.User)
+            .AsQueryable();
+
+        if (from.HasValue) query = query.Where(c => c.ResolvedAt >= from.Value);
+        if (to.HasValue) query = query.Where(c => c.ResolvedAt < to.Value);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var s = search.Trim();
+            query = query.Where(c =>
+                (c.Job!.Title != null && c.Job.Title.Contains(s)) ||
+                (c.Job.User != null && (
+                    (c.Job.User.FirstName + " " + c.Job.User.LastName).Contains(s) ||
+                    (c.Job.User.Email != null && c.Job.User.Email.Contains(s)))) ||
+                _context.Pros.Any(p => p.Id == c.ResolvedProId && (
+                    (p.ProName != null && p.ProName.Contains(s)) ||
+                    (p.BusinessName != null && p.BusinessName.Contains(s)) ||
+                    (p.Email != null && p.Email.Contains(s)))));
+        }
+
+        var resolved = await query
+            .OrderByDescending(c => c.ResolvedAt)
+            .Select(c => new
+            {
+                completionId = c.Id,
+                jobId = c.JobId,
+                jobTitle = c.Job!.Title,
+                disputeReason = c.DisputeReason,
+                disputedAt = c.DisputedAt,
+                resolution = c.Resolution,
+                resolvedAt = c.ResolvedAt,
+                resolutionNotes = c.ResolutionNotes,
+                completionStatus = c.Status,
+                consumer = c.Job.User == null ? null : new
+                {
+                    id = c.Job.User.Id,
+                    name = c.Job.User.FirstName + " " + c.Job.User.LastName,
+                    email = c.Job.User.Email
+                },
+                pro = _context.Pros
+                    .Where(p => p.Id == c.ResolvedProId)
+                    .Select(p => new { id = p.Id, name = p.ProName, businessName = p.BusinessName, email = p.Email })
+                    .FirstOrDefault(),
+                resolvedBy = _context.Users
+                    .Where(u => u.Id == c.ResolvedByUserId)
+                    .Select(u => new { id = u.Id, name = u.FirstName + " " + u.LastName, email = u.Email })
+                    .FirstOrDefault(),
+                paymentAmount = _context.Payments
+                    .Where(p => p.JobId == c.JobId)
+                    .OrderByDescending(p => p.Id)
+                    .Select(p => (decimal?)p.Amount)
+                    .FirstOrDefault()
+            })
+            .ToListAsync();
+
+        return Ok(resolved);
+    }
+
     // POST: api/admin/jobs/{jobId}/completion/resolve
     [HttpPost("jobs/{jobId}/completion/resolve")]
     public async Task<ActionResult> ResolveDispute(int jobId, [FromBody] ResolveDisputeRequest request)
     {
         if (request.Resolution != "complete" && request.Resolution != "refund")
             return BadRequest(new { message = "Resolution must be 'complete' or 'refund'" });
+
+        if (string.IsNullOrWhiteSpace(request.Notes))
+            return BadRequest(new { message = "A resolution comment is required." });
 
         var completion = await _context.JobCompletions
             .Include(c => c.Job)
@@ -685,8 +756,11 @@ public class AdminController : ControllerBase
         var consumer = job.User;
         var pro = job.AssignedPro;
 
-        if (!string.IsNullOrWhiteSpace(request.Notes))
-            completion.CompletionNotes = (completion.CompletionNotes ?? "") + $"\n[Admin resolution note: {request.Notes}]";
+        completion.Resolution = request.Resolution;
+        completion.ResolutionNotes = request.Notes.Trim();
+        completion.ResolvedAt = DateTime.UtcNow;
+        completion.ResolvedProId = job.AssignedProId;
+        completion.ResolvedByUserId = int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var adminId) ? adminId : null;
 
         if (request.Resolution == "complete")
         {
@@ -812,6 +886,77 @@ public class AdminController : ControllerBase
             jobStatus = job.Status,
             completionStatus = completion.Status
         });
+    }
+
+    // GET: api/admin/metrics/registrations — counts of users/pros/businesses joined in a range.
+    // from/to are optional ISO timestamps; omitted means all-time. Range is [from, to).
+    [HttpGet("metrics/registrations")]
+    public async Task<ActionResult> GetRegistrationMetrics([FromQuery] DateTime? from, [FromQuery] DateTime? to)
+    {
+        var users = _context.Users.AsQueryable();
+        var pros = _context.Pros.AsQueryable();
+        var businesses = _context.Businesses.AsQueryable();
+
+        if (from.HasValue)
+        {
+            users = users.Where(u => u.CreatedAt >= from.Value);
+            pros = pros.Where(p => p.CreatedAt >= from.Value);
+            businesses = businesses.Where(b => b.CreatedAt >= from.Value);
+        }
+        if (to.HasValue)
+        {
+            users = users.Where(u => u.CreatedAt < to.Value);
+            pros = pros.Where(p => p.CreatedAt < to.Value);
+            businesses = businesses.Where(b => b.CreatedAt < to.Value);
+        }
+
+        return Ok(new
+        {
+            users = await users.CountAsync(),
+            pros = await pros.CountAsync(),
+            businesses = await businesses.CountAsync()
+        });
+    }
+
+    // GET: api/admin/metrics/jobs-by-category — job counts per category for a region/date range.
+    // country/state/district filter on the job's service address; from/to filter Job.CreatedAt.
+    [HttpGet("metrics/jobs-by-category")]
+    public async Task<ActionResult<IEnumerable<object>>> GetJobsByCategory(
+        [FromQuery] string? country, [FromQuery] string? state, [FromQuery] string? district,
+        [FromQuery] DateTime? from, [FromQuery] DateTime? to)
+    {
+        var jobs = _context.Jobs
+            .Include(j => j.Category)
+            .Include(j => j.ServiceAddress)
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(country))
+            jobs = jobs.Where(j => j.ServiceAddress != null && j.ServiceAddress.Country == country);
+        if (!string.IsNullOrWhiteSpace(state))
+            jobs = jobs.Where(j => j.ServiceAddress != null && j.ServiceAddress.State == state);
+        if (!string.IsNullOrWhiteSpace(district))
+            jobs = jobs.Where(j => j.ServiceAddress != null && j.ServiceAddress.District == district);
+        if (from.HasValue) jobs = jobs.Where(j => j.CreatedAt >= from.Value);
+        if (to.HasValue) jobs = jobs.Where(j => j.CreatedAt < to.Value);
+
+        var grouped = await jobs
+            .GroupBy(j => new
+            {
+                j.CategoryId,
+                CategoryName = j.Category != null ? j.Category.Name : null,
+                CategoryIcon = j.Category != null ? j.Category.Icon : null
+            })
+            .Select(g => new
+            {
+                categoryId = g.Key.CategoryId,
+                categoryName = g.Key.CategoryName ?? "Uncategorized",
+                categoryIcon = g.Key.CategoryIcon,
+                count = g.Count()
+            })
+            .OrderByDescending(x => x.count)
+            .ToListAsync();
+
+        return Ok(grouped);
     }
 }
 

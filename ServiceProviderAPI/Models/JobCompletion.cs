@@ -29,6 +29,23 @@ public class JobCompletion
     [StringLength(500)]
     public string? DisputeReason { get; set; }
 
+    // Admin dispute resolution audit (set when a Disputed completion is resolved).
+    [StringLength(20)]
+    public string? Resolution { get; set; }  // "complete" or "refund"
+
+    [StringLength(1000)]
+    public string? ResolutionNotes { get; set; }
+
+    public DateTime? ResolvedAt { get; set; }
+
+    // The admin (User) who resolved the dispute. Scalar only (no FK navigation)
+    // to avoid introducing extra cascade-delete paths.
+    public int? ResolvedByUserId { get; set; }
+
+    // The pro involved in the dispute, captured at resolution time (a refund
+    // reopens the job and clears Job.AssignedProId, so snapshot it here).
+    public int? ResolvedProId { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime? CompletedAt { get; set; }
