@@ -88,6 +88,9 @@ try
     // Service area service
     builder.Services.AddScoped<IServiceAreaService, ServiceAreaService>();
 
+    // Inline address geocoding (write path) — shares NominatimThrottle; independent of admin backfill
+    builder.Services.AddScoped<ServiceProviderAPI.Services.IGeocodingService, ServiceProviderAPI.Services.GeocodingService>();
+
     // Seed data service
     Console.WriteLine("🌱 Adding seed data service...");
     builder.Services.AddScoped<SeedDataService>();

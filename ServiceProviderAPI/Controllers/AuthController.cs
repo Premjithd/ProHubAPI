@@ -22,6 +22,7 @@ public class AuthController : ControllerBase
     private readonly INotificationService _notifications;
     private readonly IConfiguration _configuration;
     private readonly IServiceAreaService _serviceAreaService;
+    private readonly IGeocodingService _geocoding;
     private readonly ILogger<AuthController> _logger;
 
     public AuthController(
@@ -31,6 +32,7 @@ public class AuthController : ControllerBase
         INotificationService notifications,
         IConfiguration configuration,
         IServiceAreaService serviceAreaService,
+        IGeocodingService geocoding,
         ILogger<AuthController> logger)
     {
         _context = context;
@@ -39,6 +41,7 @@ public class AuthController : ControllerBase
         _notifications = notifications;
         _configuration = configuration;
         _serviceAreaService = serviceAreaService;
+        _geocoding = geocoding;
         _logger = logger;
     }
 
@@ -171,6 +174,16 @@ public class AuthController : ControllerBase
         if (user == null || user.AddressId != null)
             return NotFound(new { message = "Draft registration not found" });
 
+        // No coordinates supplied (manual address entry) — geocode from the address text.
+        var (userLat, userLon) = (request.Latitude, request.Longitude);
+        if (!userLat.HasValue || !userLon.HasValue)
+        {
+            var coords = await _geocoding.TryGeocodeAsync(
+                request.HouseNameNumber, request.Street1, request.City, request.State, request.Country, HttpContext.RequestAborted);
+            userLat = coords?.Lat;
+            userLon = coords?.Lon;
+        }
+
         var address = new Address
         {
             AddressType = "User",
@@ -182,8 +195,8 @@ public class AuthController : ControllerBase
             State = request.State,
             Country = request.Country,
             ZipPostalCode = request.ZipPostalCode,
-            Latitude = request.Latitude,
-            Longitude = request.Longitude,
+            Latitude = userLat,
+            Longitude = userLon,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -249,6 +262,16 @@ public class AuthController : ControllerBase
                 return BadRequest(new { message = $"We are not currently operating in {request.Country}. Please check back soon as we expand our service areas." });
         }
 
+        // No coordinates supplied (manual address entry) — geocode from the address text.
+        var (proLat, proLon) = (request.Latitude, request.Longitude);
+        if (!proLat.HasValue || !proLon.HasValue)
+        {
+            var coords = await _geocoding.TryGeocodeAsync(
+                request.HouseNameNumber, request.Street1, request.City, request.State, request.Country, HttpContext.RequestAborted);
+            proLat = coords?.Lat;
+            proLon = coords?.Lon;
+        }
+
         // Create or update address for the pro
         var step2Address = new Address
         {
@@ -261,8 +284,8 @@ public class AuthController : ControllerBase
             State = request.State,
             Country = request.Country,
             ZipPostalCode = request.ZipPostalCode,
-            Latitude = request.Latitude,
-            Longitude = request.Longitude,
+            Latitude = proLat,
+            Longitude = proLon,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };

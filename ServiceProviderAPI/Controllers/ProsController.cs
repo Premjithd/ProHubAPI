@@ -16,11 +16,13 @@ public class ProsController : ControllerBase
 {
     private readonly ApplicationDbContext _context;
     private readonly IPayoutService _payoutService;
+    private readonly IGeocodingService _geocoding;
 
-    public ProsController(ApplicationDbContext context, IPayoutService payoutService)
+    public ProsController(ApplicationDbContext context, IPayoutService payoutService, IGeocodingService geocoding)
     {
         _context = context;
         _payoutService = payoutService;
+        _geocoding = geocoding;
     }
 
     [HttpGet]
@@ -199,6 +201,16 @@ public class ProsController : ControllerBase
             existingPro.Address = newAddr;
         }
         var addr = existingPro.Address;
+
+        // Did the location-defining fields actually change? (compare before overwriting)
+        var locationChanged =
+            !SameAddressField(addr.HouseNameNumber, request.HouseNameNumber) ||
+            !SameAddressField(addr.Street1,         request.Street1) ||
+            !SameAddressField(addr.City,            request.City) ||
+            !SameAddressField(addr.State,           request.State) ||
+            !SameAddressField(addr.Country,         request.Country) ||
+            !SameAddressField(addr.ZipPostalCode,   request.ZipPostalCode);
+
         addr.HouseNameNumber = request.HouseNameNumber;
         addr.Street1 = request.Street1;
         addr.Street2 = request.Street2;
@@ -207,8 +219,23 @@ public class ProsController : ControllerBase
         addr.State = request.State;
         addr.Country = request.Country;
         addr.ZipPostalCode = request.ZipPostalCode;
-        if (request.Latitude.HasValue) addr.Latitude = request.Latitude;
-        if (request.Longitude.HasValue) addr.Longitude = request.Longitude;
+
+        if (request.Latitude.HasValue && request.Longitude.HasValue)
+        {
+            // Fresh coordinates supplied (e.g. from address autocomplete) — authoritative.
+            addr.Latitude = request.Latitude;
+            addr.Longitude = request.Longitude;
+        }
+        else if (locationChanged)
+        {
+            // Address text changed but no new coordinates (manual edit) — geocode the new
+            // address so coordinates stay accurate. Best-effort: on failure they fall to null
+            // (cleared, not stale) and the admin geocode-backfill can still re-resolve later.
+            var coords = await _geocoding.TryGeocodeAsync(
+                addr.HouseNameNumber, addr.Street1, addr.City, addr.State, addr.Country, HttpContext.RequestAborted);
+            addr.Latitude = coords?.Lat;
+            addr.Longitude = coords?.Lon;
+        }
         addr.UpdatedAt = DateTime.UtcNow;
 
         try
@@ -351,4 +378,8 @@ public class ProsController : ControllerBase
     {
         return _context.Pros.Any(e => e.Id == id);
     }
+
+    // Treats null/empty/whitespace as equal and ignores case, so trivial edits don't drop coordinates.
+    private static bool SameAddressField(string? a, string? b) =>
+        string.Equals((a ?? "").Trim(), (b ?? "").Trim(), StringComparison.OrdinalIgnoreCase);
 }

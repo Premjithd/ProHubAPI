@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using ServiceProviderAPI.Data;
 using ServiceProviderAPI.DTOs;
 using ServiceProviderAPI.Models;
+using ServiceProviderAPI.Services;
 using BC = BCrypt.Net.BCrypt;
 
 namespace ServiceProviderAPI.Controllers;
@@ -14,10 +15,12 @@ namespace ServiceProviderAPI.Controllers;
 public class UsersController : ControllerBase
 {
     private readonly ApplicationDbContext _context;
+    private readonly IGeocodingService _geocoding;
 
-    public UsersController(ApplicationDbContext context)
+    public UsersController(ApplicationDbContext context, IGeocodingService geocoding)
     {
         _context = context;
+        _geocoding = geocoding;
     }
 
     [HttpGet]
@@ -44,6 +47,10 @@ public class UsersController : ControllerBase
 
         return Ok(SafeUser(user));
     }
+
+    // Treats null/empty/whitespace as equal and ignores case, so trivial edits don't drop coordinates.
+    private static bool SameAddressField(string? a, string? b) =>
+        string.Equals((a ?? "").Trim(), (b ?? "").Trim(), StringComparison.OrdinalIgnoreCase);
 
     private static object SafeUser(User u) => new
     {
@@ -115,6 +122,16 @@ public class UsersController : ControllerBase
             existingUser.Address = newAddr;
         }
         var addr = existingUser.Address;
+
+        // Did the location-defining fields actually change? (compare before overwriting)
+        var locationChanged =
+            !SameAddressField(addr.HouseNameNumber, request.HouseNameNumber) ||
+            !SameAddressField(addr.Street1,         request.Street1) ||
+            !SameAddressField(addr.City,            request.City) ||
+            !SameAddressField(addr.State,           request.State) ||
+            !SameAddressField(addr.Country,         request.Country) ||
+            !SameAddressField(addr.ZipPostalCode,   request.ZipPostalCode);
+
         addr.HouseNameNumber = request.HouseNameNumber;
         addr.Street1 = request.Street1;
         addr.Street2 = request.Street2;
@@ -123,8 +140,23 @@ public class UsersController : ControllerBase
         addr.State = request.State;
         addr.Country = request.Country;
         addr.ZipPostalCode = request.ZipPostalCode;
-        if (request.Latitude.HasValue) addr.Latitude = request.Latitude;
-        if (request.Longitude.HasValue) addr.Longitude = request.Longitude;
+
+        if (request.Latitude.HasValue && request.Longitude.HasValue)
+        {
+            // Fresh coordinates supplied (e.g. from address autocomplete) — authoritative.
+            addr.Latitude = request.Latitude;
+            addr.Longitude = request.Longitude;
+        }
+        else if (locationChanged)
+        {
+            // Address text changed but no new coordinates (manual edit) — geocode the new
+            // address so coordinates stay accurate. Best-effort: on failure they fall to null
+            // (cleared, not stale) and the admin geocode-backfill can still re-resolve later.
+            var coords = await _geocoding.TryGeocodeAsync(
+                addr.HouseNameNumber, addr.Street1, addr.City, addr.State, addr.Country, HttpContext.RequestAborted);
+            addr.Latitude = coords?.Lat;
+            addr.Longitude = coords?.Lon;
+        }
         addr.UpdatedAt = DateTime.UtcNow;
 
         try
