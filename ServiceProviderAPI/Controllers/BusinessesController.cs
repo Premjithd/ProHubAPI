@@ -88,6 +88,7 @@ public class BusinessesController : ControllerBase
             m.Business.BusinessName,
             m.Business.Description,
             m.Business.Status,
+            m.Business.ServiceRadiusKm,
             m.Role,
             m.JoinedAt,
             Address = m.Business.Address == null ? null : new
@@ -230,10 +231,11 @@ public class BusinessesController : ControllerBase
 
         if (!string.IsNullOrWhiteSpace(req.BusinessName)) biz.BusinessName = req.BusinessName;
         if (req.Description != null) biz.Description = req.Description;
+        if (req.ServiceRadiusKm.HasValue) biz.ServiceRadiusKm = req.ServiceRadiusKm;
         biz.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
-        return Ok(new { biz.Id, biz.BusinessName, biz.Description });
+        return Ok(new { biz.Id, biz.BusinessName, biz.Description, biz.ServiceRadiusKm });
     }
 
     // ── GET /api/businesses/{id}/members ──────────────────────────────────
@@ -412,6 +414,8 @@ public class UpdateBusinessRequest
     public string? BusinessName { get; set; }
     [StringLength(1000)]
     public string? Description { get; set; }
+    [Range(1, 500)]
+    public int? ServiceRadiusKm { get; set; }
 }
 
 public class AddMemberRequest

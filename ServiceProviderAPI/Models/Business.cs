@@ -24,6 +24,9 @@ public class Business
     [StringLength(20)]
     public string Status { get; set; } = "Active";
 
+    // How far (km) the business serves from its address. Null = unset.
+    public int? ServiceRadiusKm { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 

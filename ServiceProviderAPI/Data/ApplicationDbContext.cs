@@ -38,6 +38,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<Business> Businesses { get; set; }
     public DbSet<ProBusinessMembership> ProBusinessMemberships { get; set; }
     public DbSet<PaymentMethod> PaymentMethods { get; set; }
+    public DbSet<TeamMember> TeamMembers { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
