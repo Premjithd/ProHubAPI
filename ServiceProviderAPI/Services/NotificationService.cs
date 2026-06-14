@@ -25,6 +25,11 @@ public interface INotificationService
     Task<bool> NotifyProPaymentReceivedAsync(Job job, JobBid bid, Pro pro, decimal amount);
 
     /// <summary>
+    /// Notify the consumer that the assigned Pro has requested a payment for their job.
+    /// </summary>
+    Task<bool> NotifyUserPaymentRequestedAsync(Job job, User consumer, string requestType, decimal requestedAmount);
+
+    /// <summary>
     /// Notify consumer when pro accepts the job
     /// </summary>
     Task<bool> NotifyConsumerProAcceptedAsync(Job job, Pro pro, User consumer);
@@ -236,6 +241,37 @@ public class NotificationService : INotificationService
         catch (Exception ex)
         {
             _logger.LogError($"Error notifying consumer of completion: {ex.Message}");
+            return false;
+        }
+    }
+
+    public async Task<bool> NotifyUserPaymentRequestedAsync(Job job, User consumer, string requestType, decimal requestedAmount)
+    {
+        try
+        {
+            var subject = "Payment Requested for Your Job";
+            var amountLine = requestType == "None"
+                ? "The professional has waived upfront payment — work can begin right away."
+                : $"Requested Amount: ₹{requestedAmount:N2}";
+
+            var message = $@"
+            Hi {consumer.FirstName},
+
+            The professional assigned to your job '{job.Title}' has raised a payment request.
+
+            {amountLine}
+
+            Please open the job to review and complete the payment.
+
+            Best regards,
+            ProHub Team
+            ";
+
+            return await NotifyAsync(consumer.Email, consumer.PhoneNumber, subject, message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error notifying consumer of payment request: {ex.Message}");
             return false;
         }
     }

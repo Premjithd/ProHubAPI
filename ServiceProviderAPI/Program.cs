@@ -66,13 +66,26 @@ try
 
     // Phase 1C: Payment services
     Console.WriteLine("💳 Adding payment services...");
-    builder.Services.AddScoped<ServiceProviderAPI.Services.Abstractions.IPaymentProvider>(sp =>
-        new ServiceProviderAPI.Services.Providers.RazorpayPaymentProvider(
-            sp.GetRequiredService<ILogger<ServiceProviderAPI.Services.Providers.RazorpayPaymentProvider>>(),
-            builder.Configuration,
-            sp.GetRequiredService<HttpClient>()
-        )
-    );
+    var useMockPayments = builder.Configuration.GetValue<bool>("Payment:UseMockProvider");
+    if (useMockPayments)
+    {
+        Console.WriteLine("⚠️  Using MockPaymentProvider (simulated payments — development only)");
+        builder.Services.AddScoped<ServiceProviderAPI.Services.Abstractions.IPaymentProvider>(sp =>
+            new ServiceProviderAPI.Services.Providers.MockPaymentProvider(
+                sp.GetRequiredService<ILogger<ServiceProviderAPI.Services.Providers.MockPaymentProvider>>()
+            )
+        );
+    }
+    else
+    {
+        builder.Services.AddScoped<ServiceProviderAPI.Services.Abstractions.IPaymentProvider>(sp =>
+            new ServiceProviderAPI.Services.Providers.RazorpayPaymentProvider(
+                sp.GetRequiredService<ILogger<ServiceProviderAPI.Services.Providers.RazorpayPaymentProvider>>(),
+                builder.Configuration,
+                sp.GetRequiredService<HttpClient>()
+            )
+        );
+    }
     builder.Services.AddScoped<ServiceProviderAPI.Services.IRateSplitService, ServiceProviderAPI.Services.RateSplitService>();
 
     // Phase 1E: Insurance service abstraction (no provider implementation yet)

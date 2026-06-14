@@ -7,6 +7,12 @@ public interface IRateSplitService
 {
     Task<RateSplit> CalculateSplitAsync(decimal bidAmount);
     Task<RateSplitConfig> GetConfigAsync();
+
+    /// <summary>
+    /// Prorate a full-bid split down to a partial principal portion. Fees/GST/payout are scaled by
+    /// principal / full.BidAmount so that a series of partials sums exactly to paying the bid in full.
+    /// </summary>
+    RateSplit ProrateForPrincipal(RateSplit full, decimal principal);
 }
 
 public class RateSplitService : IRateSplitService
@@ -50,6 +56,36 @@ public class RateSplitService : IRateSplitService
     }
 
     public async Task<RateSplitConfig> GetConfigAsync() => await LoadConfigAsync();
+
+    public RateSplit ProrateForPrincipal(RateSplit full, decimal principal)
+    {
+        if (full.BidAmount <= 0)
+            throw new ArgumentException("Full split must have a positive bid amount", nameof(full));
+
+        var factor = principal / full.BidAmount;
+
+        var userCommission      = decimal.Round(full.UserCommission * factor, 2);
+        var gstOnUserCommission = decimal.Round(full.GstOnUserCommission * factor, 2);
+        var proDeduction        = decimal.Round(full.ProDeduction * factor, 2);
+        var proPayout           = principal - proDeduction;
+        var totalAmountUserPays = principal + userCommission + gstOnUserCommission;
+
+        return new RateSplit
+        {
+            BidAmount             = principal,
+            UserCommission        = userCommission,
+            GstOnUserCommission   = gstOnUserCommission,
+            TotalAmountUserPays   = totalAmountUserPays,
+            ProDeduction          = proDeduction,
+            ProPayout             = proPayout,
+            TotalPlatformEarnings = userCommission + proDeduction,
+            UserCommissionPercent = full.UserCommissionPercent,
+            ProCommissionPercent  = full.ProCommissionPercent,
+            GstPercent            = full.GstPercent,
+            EffectiveUserChargePercent = principal > 0 ? decimal.Round((totalAmountUserPays / principal - 1) * 100, 2) : 0,
+            EffectiveProPayoutPercent  = principal > 0 ? decimal.Round((proPayout / principal) * 100, 2) : 0,
+        };
+    }
 
     public async Task<RateSplit> CalculateSplitAsync(decimal bidAmount)
     {

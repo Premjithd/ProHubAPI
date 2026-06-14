@@ -41,6 +41,100 @@ public class PaymentsController : ControllerBase
         _configuration = configuration;
     }
 
+    private int GetUserId() => int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+
+    /// <summary>
+    /// Sum of completed payments' principal for a job. Legacy completed rows (PrincipalAmount == 0)
+    /// are treated as covering the full bid amount.
+    /// </summary>
+    private async Task<decimal> SumCompletedPrincipalAsync(int jobId, decimal bidAmount)
+    {
+        var completed = await _context.Payments
+            .Where(p => p.JobId == jobId && p.Status == "Completed")
+            .Select(p => new { p.PrincipalAmount })
+            .ToListAsync();
+
+        decimal paid = 0m;
+        foreach (var p in completed)
+            paid += p.PrincipalAmount > 0 ? p.PrincipalAmount : bidAmount;
+
+        return Math.Min(paid, bidAmount);
+    }
+
+    private static PaymentRequestDto MapRequest(PaymentRequest r, decimal remaining)
+    {
+        var minAmount = r.RequestType switch
+        {
+            "Partial" => Math.Min(decimal.Round(r.RequestedAmount * r.MinPercent / 100m, 2), remaining),
+            "Full"    => remaining,
+            _         => 0m
+        };
+
+        return new PaymentRequestDto
+        {
+            Id = r.Id,
+            JobId = r.JobId,
+            BidId = r.BidId,
+            ProId = r.ProId,
+            RequestType = r.RequestType,
+            RequestedAmount = r.RequestedAmount,
+            MinPercent = r.MinPercent,
+            MinAmount = minAmount,
+            Status = r.Status,
+            Note = r.Note,
+            CreatedAt = r.CreatedAt,
+            FulfilledAt = r.FulfilledAt
+        };
+    }
+
+    private async Task<PaymentSummaryDto> BuildPaymentSummaryAsync(int jobId)
+    {
+        var acceptedBid = await _context.JobBids
+            .Where(b => b.JobId == jobId && b.Status == "Accepted")
+            .OrderByDescending(b => b.UpdatedAt)
+            .FirstOrDefaultAsync();
+
+        var bidAmount = acceptedBid?.BidAmount ?? 0m;
+
+        var payments = await _context.Payments
+            .Where(p => p.JobId == jobId)
+            .OrderBy(p => p.CreatedAt)
+            .ToListAsync();
+
+        decimal paid = 0m;
+        foreach (var p in payments.Where(p => p.Status == "Completed"))
+            paid += p.PrincipalAmount > 0 ? p.PrincipalAmount : bidAmount;
+        if (paid > bidAmount) paid = bidAmount;
+
+        var remaining = Math.Max(0m, bidAmount - paid);
+
+        var activeRequest = await _context.PaymentRequests
+            .Where(r => r.JobId == jobId && r.Status == "Pending")
+            .OrderByDescending(r => r.CreatedAt)
+            .FirstOrDefaultAsync();
+
+        return new PaymentSummaryDto
+        {
+            JobId = jobId,
+            BidAmount = bidAmount,
+            TotalPaidPrincipal = paid,
+            Remaining = remaining,
+            IsFullyPaid = bidAmount > 0 && remaining <= 0,
+            Payments = payments.Select(p => new PaymentHistoryItemDto
+            {
+                Id = p.Id,
+                PrincipalAmount = p.PrincipalAmount,
+                Amount = p.Amount,
+                PlatformFee = p.PlatformFee,
+                ProPayout = p.ProPayout,
+                Status = p.Status,
+                CreatedAt = p.CreatedAt,
+                CompletedAt = p.CompletedAt
+            }).ToList(),
+            ActiveRequest = activeRequest == null ? null : MapRequest(activeRequest, remaining)
+        };
+    }
+
     /// <summary>
     /// GET: api/payments/job/{jobId} - Get payment status for a job
     /// </summary>
@@ -88,6 +182,161 @@ public class PaymentsController : ControllerBase
     }
 
     /// <summary>
+    /// GET: api/payments/job/{jobId}/summary - Payment tracking for a job (consumer or assigned pro).
+    /// </summary>
+    [HttpGet("job/{jobId}/summary")]
+    public async Task<ActionResult<PaymentSummaryDto>> GetPaymentSummary(int jobId)
+    {
+        var job = await _context.Jobs.FindAsync(jobId);
+        if (job == null)
+            return NotFound(new { message = "Job not found" });
+
+        var userId = GetUserId();
+        if (job.UserId != userId && job.AssignedProId != userId)
+            return Forbid();
+
+        var summary = await BuildPaymentSummaryAsync(jobId);
+        return Ok(summary);
+    }
+
+    /// <summary>
+    /// POST: api/payments/request - Assigned Pro raises a payment request (None/Partial/Full).
+    /// Only one Pending request may exist per job at a time.
+    /// </summary>
+    [HttpPost("request")]
+    public async Task<IActionResult> CreatePaymentRequest([FromBody] CreatePaymentRequestRequest request)
+    {
+        try
+        {
+            var userId = GetUserId();
+
+            var job = await _context.Jobs
+                .Include(j => j.User)
+                .FirstOrDefaultAsync(j => j.Id == request.JobId);
+
+            if (job == null)
+                return NotFound(new { message = "Job not found" });
+
+            if (job.AssignedProId != userId)
+                return Forbid();
+
+            var acceptedBid = await _context.JobBids
+                .Where(b => b.JobId == request.JobId && b.Status == "Accepted")
+                .OrderByDescending(b => b.UpdatedAt)
+                .FirstOrDefaultAsync();
+
+            if (acceptedBid == null || (acceptedBid.BidAmount ?? 0) <= 0)
+                return BadRequest(new { message = "No accepted bid with an amount for this job" });
+
+            var bidAmount = acceptedBid.BidAmount!.Value;
+
+            var existing = await _context.PaymentRequests
+                .FirstOrDefaultAsync(r => r.JobId == request.JobId && r.Status == "Pending");
+            if (existing != null)
+                return BadRequest(new { message = "There is already an active payment request for this job" });
+
+            var alreadyPaid = await SumCompletedPrincipalAsync(request.JobId, bidAmount);
+            var remaining = Math.Max(0m, bidAmount - alreadyPaid);
+
+            var type = request.RequestType;
+            decimal requestedAmount;
+            decimal minPercent = 0m;
+
+            switch (type)
+            {
+                case "None":
+                    requestedAmount = 0m;
+                    break;
+                case "Full":
+                    if (remaining <= 0)
+                        return BadRequest(new { message = "This job is already fully paid" });
+                    requestedAmount = remaining;
+                    break;
+                case "Partial":
+                    if (remaining <= 0)
+                        return BadRequest(new { message = "This job is already fully paid" });
+                    if (request.RequestedAmount <= 0)
+                        return BadRequest(new { message = "Requested amount must be greater than zero" });
+                    if (request.RequestedAmount > remaining + 0.01m)
+                        return BadRequest(new { message = $"Requested amount exceeds the remaining balance of ₹{remaining:N2}" });
+                    requestedAmount = request.RequestedAmount;
+                    minPercent = Math.Clamp(request.MinPercent, 0m, 100m);
+                    break;
+                default:
+                    return BadRequest(new { message = "Invalid request type" });
+            }
+
+            var paymentRequest = new PaymentRequest
+            {
+                JobId = request.JobId,
+                BidId = acceptedBid.Id,
+                ProId = userId,
+                RequestType = type,
+                RequestedAmount = requestedAmount,
+                MinPercent = minPercent,
+                Note = request.Note,
+                Status = type == "None" ? "Fulfilled" : "Pending",
+                CreatedAt = DateTime.UtcNow,
+                FulfilledAt = type == "None" ? DateTime.UtcNow : null
+            };
+            _context.PaymentRequests.Add(paymentRequest);
+
+            // "No payment" lets the job proceed so the Pro can confirm and start work.
+            if (type == "None" && job.Status == "Bid Accepted")
+            {
+                job.Status = "Payment Made";
+                job.UpdatedAt = DateTime.UtcNow;
+            }
+
+            _context.JobNotifications.Add(new JobNotification
+            {
+                JobId = job.Id,
+                UserId = job.UserId,
+                NotificationType = "PaymentRequested",
+                Message = type == "None"
+                    ? $"The professional waived upfront payment for \"{job.Title}\" — work can begin."
+                    : $"The professional requested a payment of ₹{requestedAmount:N0} for \"{job.Title}\"."
+            });
+
+            await _context.SaveChangesAsync();
+
+            if (job.User != null)
+                await _notificationService.NotifyUserPaymentRequestedAsync(job, job.User, type, requestedAmount);
+
+            var summary = await BuildPaymentSummaryAsync(request.JobId);
+            return Ok(summary);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error creating payment request: {ex.Message}");
+            return StatusCode(500, new { message = "Error creating payment request", error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// POST: api/payments/request/{id}/cancel - Pro cancels their Pending payment request.
+    /// </summary>
+    [HttpPost("request/{id}/cancel")]
+    public async Task<IActionResult> CancelPaymentRequest(int id)
+    {
+        var pr = await _context.PaymentRequests.Include(r => r.Job).FirstOrDefaultAsync(r => r.Id == id);
+        if (pr == null)
+            return NotFound(new { message = "Payment request not found" });
+
+        if (pr.Job?.AssignedProId != GetUserId())
+            return Forbid();
+
+        if (pr.Status != "Pending")
+            return BadRequest(new { message = "Only a pending request can be cancelled" });
+
+        pr.Status = "Cancelled";
+        await _context.SaveChangesAsync();
+
+        var summary = await BuildPaymentSummaryAsync(pr.JobId);
+        return Ok(summary);
+    }
+
+    /// <summary>
     /// POST: api/payments/create-order - Create a Razorpay order for a job bid
     /// </summary>
     [HttpPost("create-order")]
@@ -117,41 +366,63 @@ public class PaymentsController : ControllerBase
             if (bid == null)
                 return BadRequest(new { message = "Bid not found for this job" });
 
-            if (bid.Status == "Expired" || (bid.ExpiresAt.HasValue && DateTime.UtcNow > bid.ExpiresAt))
+            // Quote expiry only matters before the bid is accepted. Once accepted, payment can happen
+            // later (and across multiple partial installments), so the original expiry no longer applies.
+            if (bid.Status != "Accepted" &&
+                (bid.Status == "Expired" || (bid.ExpiresAt.HasValue && DateTime.UtcNow > bid.ExpiresAt)))
             {
                 bid.Status = "Expired";
                 await _context.SaveChangesAsync();
                 return BadRequest(new { message = "Quote has expired" });
             }
 
-            // Check if payment already exists for this job by the current user
-            var existingPayment = await _context.Payments
-                .FirstOrDefaultAsync(p => p.JobId == request.JobId && p.UserId == userId);
+            // Authoritative agreed total is the accepted bid amount.
+            var bidAmount = bid.BidAmount ?? request.Amount;
+            if (bidAmount <= 0)
+                return BadRequest(new { message = "Bid amount is not set for this job" });
 
-            if (existingPayment != null)
+            // How much of the agreed bid is being paid right now (principal). Defaults to the full remaining.
+            var alreadyPaid = await SumCompletedPrincipalAsync(request.JobId, bidAmount);
+            var remaining = Math.Max(0m, bidAmount - alreadyPaid);
+
+            if (remaining <= 0)
+                return BadRequest(new { message = "This job is already fully paid" });
+
+            var principal = request.PrincipalAmount > 0 ? request.PrincipalAmount : remaining;
+            if (principal <= 0)
+                return BadRequest(new { message = "Payment amount must be greater than zero" });
+            if (principal > remaining + 0.01m)
+                return BadRequest(new { message = $"Payment exceeds the remaining balance of ₹{remaining:N2}" });
+
+            // Enforce the floor from an active Partial request, if any.
+            var activeRequest = await _context.PaymentRequests
+                .Where(r => r.JobId == request.JobId && r.Status == "Pending")
+                .OrderByDescending(r => r.CreatedAt)
+                .FirstOrDefaultAsync();
+
+            if (activeRequest != null && activeRequest.RequestType == "Partial")
             {
-                _logger.LogInformation($"Payment already exists for Job:{request.JobId}, User:{userId}. Status: {existingPayment.Status}");
-
-                // If payment is already completed, don't allow another payment
-                if (existingPayment.Status == "Completed")
-                    return BadRequest(new { message = "Payment already completed for this job" });
-
-                // If payment is pending, delete it and create a new order (old order might be stale)
-                if (existingPayment.Status == "Pending")
-                {
-                    _logger.LogInformation($"Deleting stale pending payment {existingPayment.Id} to create fresh order");
-                    _context.Payments.Remove(existingPayment);
-                    await _context.SaveChangesAsync();
-                }
+                var floor = Math.Min(decimal.Round(activeRequest.RequestedAmount * activeRequest.MinPercent / 100m, 2), remaining);
+                if (principal + 0.01m < floor)
+                    return BadRequest(new { message = $"Minimum payment for this request is ₹{floor:N2}" });
             }
 
-            // Calculate rate split
-            var rateSplit = await _rateSplitService.CalculateSplitAsync(request.Amount);
+            // Remove any stale Pending order for this job/user before creating a fresh one.
+            var stalePending = await _context.Payments
+                .Where(p => p.JobId == request.JobId && p.UserId == userId && p.Status == "Pending")
+                .ToListAsync();
+            if (stalePending.Count > 0)
+            {
+                _context.Payments.RemoveRange(stalePending);
+                await _context.SaveChangesAsync();
+            }
 
-            // Total amount user pays (bid + user commission + GST)
+            // Calculate the full-bid split, then prorate to the principal portion being paid now.
+            var fullSplit = await _rateSplitService.CalculateSplitAsync(bidAmount);
+            var rateSplit = _rateSplitService.ProrateForPrincipal(fullSplit, principal);
             var totalAmountToPay = rateSplit.TotalAmountUserPays;
 
-            // Create Razorpay order with total amount
+            // Create Razorpay order with the prorated total
             var orderResponse = await _paymentProvider.CreateOrderAsync(
                 request.JobId,
                 request.BidId,
@@ -169,6 +440,7 @@ public class PaymentsController : ControllerBase
                 JobId = request.JobId,
                 BidId = request.BidId,
                 UserId = userId,
+                PrincipalAmount = principal,
                 Amount = totalAmountToPay,
                 PlatformFee = rateSplit.UserCommission,
                 ProPayout = rateSplit.ProPayout,
@@ -181,9 +453,9 @@ public class PaymentsController : ControllerBase
             _context.Payments.Add(payment);
             await _context.SaveChangesAsync();
 
-            _logger.LogInformation($"Payment order created: {orderResponse.OrderId} for Job:{request.JobId}");
+            _logger.LogInformation($"Payment order created: {orderResponse.OrderId} for Job:{request.JobId}, Principal:₹{principal:N2}");
 
-            // Return Razorpay checkout details
+            // Return Razorpay checkout details (field names align with the Angular PaymentOrder model)
             return Ok(new
             {
                 orderId = orderResponse.OrderId,
@@ -193,12 +465,15 @@ public class PaymentsController : ControllerBase
                 consumerName = $"{job.User?.FirstName} {job.User?.LastName}",
                 consumerEmail = job.User?.Email,
                 consumerPhone = job.User?.PhoneNumber,
-                userCommission = rateSplit.UserCommission,
-                gstOnUserCommission = rateSplit.GstOnUserCommission,
+                principalAmount = principal,
+                bidAmount,
+                remainingBefore = remaining,
+                platformFee = rateSplit.UserCommission,
+                gstOnPlatformFee = rateSplit.GstOnUserCommission,
                 proDeduction = rateSplit.ProDeduction,
                 totalAmount = totalAmountToPay,
                 proPayout = rateSplit.ProPayout,
-                effectiveUserChargePercent = rateSplit.EffectiveUserChargePercent,
+                effectivePlatformFeePercent = rateSplit.EffectiveUserChargePercent,
                 effectiveProPayoutPercent = rateSplit.EffectiveProPayoutPercent
             });
         }
@@ -278,6 +553,17 @@ public class PaymentsController : ControllerBase
                 payment.Bid.Status = "Accepted";
                 payment.Bid.UpdatedAt = DateTime.UtcNow;
                 _context.JobBids.Update(payment.Bid);
+            }
+
+            // Mark the active payment request (if any) as fulfilled.
+            var fulfilledRequest = await _context.PaymentRequests
+                .Where(r => r.JobId == payment.JobId && r.Status == "Pending")
+                .OrderByDescending(r => r.CreatedAt)
+                .FirstOrDefaultAsync();
+            if (fulfilledRequest != null)
+            {
+                fulfilledRequest.Status = "Fulfilled";
+                fulfilledRequest.FulfilledAt = DateTime.UtcNow;
             }
 
             _context.Payments.Update(payment);
@@ -507,6 +793,16 @@ public class PaymentsController : ControllerBase
                     {
                         payment.Bid.Status = "Accepted";
                         payment.Bid.UpdatedAt = DateTime.UtcNow;
+                    }
+
+                    var fulfilledRequest = await _context.PaymentRequests
+                        .Where(r => r.JobId == payment.JobId && r.Status == "Pending")
+                        .OrderByDescending(r => r.CreatedAt)
+                        .FirstOrDefaultAsync();
+                    if (fulfilledRequest != null)
+                    {
+                        fulfilledRequest.Status = "Fulfilled";
+                        fulfilledRequest.FulfilledAt = DateTime.UtcNow;
                     }
 
                     await _context.SaveChangesAsync();

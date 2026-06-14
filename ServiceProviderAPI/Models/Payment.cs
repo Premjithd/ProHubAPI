@@ -16,7 +16,10 @@ public class Payment
     public int UserId { get; set; }  // Consumer who made the payment
 
     [Column(TypeName = "decimal(18,2)")]
-    public decimal Amount { get; set; }  // Total amount paid
+    public decimal Amount { get; set; }  // Total amount charged (principal + prorated fee + prorated GST)
+
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal PrincipalAmount { get; set; }  // Slice of the agreed bid amount this payment covers
 
     [Column(TypeName = "decimal(18,2)")]
     public decimal PlatformFee { get; set; }  // Platform's commission
