@@ -231,17 +231,17 @@ try
     });
 
     Console.WriteLine("🌐 Adding CORS...");
+    // Allowed origins come from configuration (Cors:AllowedOrigins). Falls back to the
+    // local Angular dev server if none are configured.
+    var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();
+    if (allowedOrigins is null || allowedOrigins.Length == 0)
+        allowedOrigins = new[] { "http://localhost:4200" };
+
     builder.Services.AddCors(options =>
     {
         options.AddPolicy("AllowAngular", policy =>
         {
-            policy.WithOrigins(
-                    "http://localhost:4200",
-                    "http://localhost",
-                    "capacitor://localhost",
-                    "https://localhost",
-                    "https://yprohubui-crc0hxcnfwfxa6fn.southindia-01.azurewebsites.net"
-                )
+            policy.WithOrigins(allowedOrigins)
                   .AllowAnyHeader()
                   .AllowAnyMethod()
                   .AllowCredentials();
@@ -326,6 +326,40 @@ try
 
     app.UseAuthentication();
     app.UseAuthorization();
+
+    // Maintenance gate — runs after authentication so the admin bypass can see the user's role.
+    // When Maintenance:Enabled is true, every request is short-circuited with 503 except the
+    // maintenance status, auth (so admins can sign in), and Swagger; Admins are allowed through.
+    app.Use(async (context, next) =>
+    {
+        var config = context.RequestServices.GetRequiredService<IConfiguration>();
+        if (!config.GetValue<bool>("Maintenance:Enabled"))
+        {
+            await next();
+            return;
+        }
+
+        var path = context.Request.Path.Value ?? string.Empty;
+        var allowlisted =
+            path.StartsWith("/api/maintenance", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/api/auth", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/swagger", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/health", StringComparison.OrdinalIgnoreCase);
+
+        if (allowlisted || context.User.IsInRole("Admin"))
+        {
+            await next();
+            return;
+        }
+
+        context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+        context.Response.Headers.RetryAfter = "3600";
+        await context.Response.WriteAsJsonAsync(new
+        {
+            maintenance = true,
+            message = config["Maintenance:Message"] ?? "The service is temporarily unavailable for maintenance."
+        });
+    });
 
     app.MapControllers();
     app.MapHub<NotificationHub>("/hubs/notifications");
