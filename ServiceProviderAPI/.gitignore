@@ -97,3 +97,6 @@ package-lock.json
 
 # Mac
 .DS_Store
+
+# Per-user publish state (VS convention)
+*.pubxml.user
