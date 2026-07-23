@@ -61,6 +61,11 @@ public class AuthController : ControllerBase
             return Unauthorized(new { message = $"Account locked. Try again in {remaining} minute(s)." });
         }
 
+        // Accounts without a usable password (e.g. seed/demo data) can never
+        // authenticate — reject cleanly instead of letting BC.Verify throw a 500.
+        if (string.IsNullOrEmpty(pro.PasswordHash))
+            return Unauthorized(new { message = "Invalid email or password" });
+
         if (!BC.Verify(request.Password, pro.PasswordHash))
         {
             pro.FailedLoginAttempts++;
@@ -107,6 +112,11 @@ public class AuthController : ControllerBase
             var remaining = (int)Math.Ceiling((user.LockoutUntil.Value - DateTime.UtcNow).TotalMinutes);
             return Unauthorized(new { message = $"Account locked. Try again in {remaining} minute(s)." });
         }
+
+        // Accounts without a usable password (e.g. seed/demo data) can never
+        // authenticate — reject cleanly instead of letting BC.Verify throw a 500.
+        if (string.IsNullOrEmpty(user.PasswordHash))
+            return Unauthorized(new { message = "Invalid email or password" });
 
         if (!BC.Verify(request.Password, user.PasswordHash))
         {

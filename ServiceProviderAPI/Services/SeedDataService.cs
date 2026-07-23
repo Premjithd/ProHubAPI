@@ -282,7 +282,9 @@ public class SeedDataService
 
             _logger.LogInformation($"Seeded {materials.Count} materials");
 
-            // Seed Test Consumer Users
+            // Seed Test Consumer Users. Demo accounts share a known password so they
+            // can actually be logged into (BCrypt-hashed, not stored in plain text).
+            var demoPasswordHash = BCrypt.Net.BCrypt.HashPassword("Password123!");
             var consumers = new[]
             {
                 new User
@@ -292,6 +294,7 @@ public class SeedDataService
                     Email = "rajesh@example.com",
                     PhoneNumber = "+91 98765 43201",
                     UserType = "User",
+                    PasswordHash = demoPasswordHash,
                     CreatedAt = DateTime.UtcNow
                 },
                 new User
@@ -301,6 +304,7 @@ public class SeedDataService
                     Email = "priya@example.com",
                     PhoneNumber = "+91 98765 43202",
                     UserType = "User",
+                    PasswordHash = demoPasswordHash,
                     CreatedAt = DateTime.UtcNow
                 },
                 new User
@@ -310,6 +314,7 @@ public class SeedDataService
                     Email = "amit@example.com",
                     PhoneNumber = "+91 98765 43203",
                     UserType = "User",
+                    PasswordHash = demoPasswordHash,
                     CreatedAt = DateTime.UtcNow
                 },
             };
@@ -331,6 +336,7 @@ public class SeedDataService
                     ServiceRadiusKm = 25,
                     IsEmailVerified = true,
                     IsPhoneVerified = true,
+                    PasswordHash = demoPasswordHash,
                     CreatedAt = DateTime.UtcNow,
                     Address = new Models.Address { AddressType = "Pro", City = "New Delhi", State = "Delhi", Country = "India", Latitude = 28.6139d, Longitude = 77.2090d }
                 },
@@ -343,6 +349,7 @@ public class SeedDataService
                     ServiceRadiusKm = 30,
                     IsEmailVerified = true,
                     IsPhoneVerified = true,
+                    PasswordHash = demoPasswordHash,
                     CreatedAt = DateTime.UtcNow,
                     Address = new Models.Address { AddressType = "Pro", City = "New Delhi", State = "Delhi", Country = "India", Latitude = 28.6155d, Longitude = 77.2100d }
                 },
@@ -355,6 +362,7 @@ public class SeedDataService
                     ServiceRadiusKm = 20,
                     IsEmailVerified = true,
                     IsPhoneVerified = true,
+                    PasswordHash = demoPasswordHash,
                     CreatedAt = DateTime.UtcNow,
                     Address = new Models.Address { AddressType = "Pro", City = "New Delhi", State = "Delhi", Country = "India", Latitude = 28.6200d, Longitude = 77.2050d }
                 },
@@ -367,6 +375,7 @@ public class SeedDataService
                     ServiceRadiusKm = 35,
                     IsEmailVerified = true,
                     IsPhoneVerified = true,
+                    PasswordHash = demoPasswordHash,
                     CreatedAt = DateTime.UtcNow,
                     Address = new Models.Address { AddressType = "Pro", City = "New Delhi", State = "Delhi", Country = "India", Latitude = 28.6100d, Longitude = 77.2110d }
                 },
@@ -379,6 +388,7 @@ public class SeedDataService
                     ServiceRadiusKm = 40,
                     IsEmailVerified = true,
                     IsPhoneVerified = true,
+                    PasswordHash = demoPasswordHash,
                     CreatedAt = DateTime.UtcNow,
                     Address = new Models.Address { AddressType = "Pro", City = "New Delhi", State = "Delhi", Country = "India", Latitude = 28.6080d, Longitude = 77.2120d }
                 },
@@ -406,6 +416,7 @@ public class SeedDataService
                     ContactPersonName = consumerUser?.FirstName,
                     ContactPersonPhone = consumerUser?.PhoneNumber,
                     CreatedAt = DateTime.UtcNow,
+                    Location = "New Delhi",
                     ServiceAddress = new Models.Address { AddressType = "Job", Street1 = "123 Main Street", City = "New Delhi", State = "Delhi", ZipPostalCode = "110001", Country = "India", Latitude = 28.6139d, Longitude = 77.2090d }
                 },
                 new Job
@@ -421,6 +432,7 @@ public class SeedDataService
                     ContactPersonName = consumerUser?.FirstName,
                     ContactPersonPhone = consumerUser?.PhoneNumber,
                     CreatedAt = DateTime.UtcNow,
+                    Location = "New Delhi",
                     ServiceAddress = new Models.Address { AddressType = "Job", Street1 = "123 Main Street", City = "New Delhi", State = "Delhi", ZipPostalCode = "110001", Country = "India", Latitude = 28.6139d, Longitude = 77.2090d }
                 },
                 new Job
@@ -436,6 +448,7 @@ public class SeedDataService
                     ContactPersonName = consumerUser?.FirstName,
                     ContactPersonPhone = consumerUser?.PhoneNumber,
                     CreatedAt = DateTime.UtcNow,
+                    Location = "New Delhi",
                     ServiceAddress = new Models.Address { AddressType = "Job", Street1 = "123 Main Street", City = "New Delhi", State = "Delhi", ZipPostalCode = "110001", Country = "India", Latitude = 28.6139d, Longitude = 77.2090d }
                 },
             };
