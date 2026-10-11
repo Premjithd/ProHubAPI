@@ -659,6 +659,10 @@ public class JobsController : ControllerBase
             {
                 JobId = id,
                 CompletionNotes = request?.CompletionNotes,
+                CompletionPhotoIds = request?.CompletionPhotoIds is { Count: > 0 } cp
+                    ? System.Text.Json.JsonSerializer.Serialize(cp) : null,
+                ReceiptPhotoIds = request?.ReceiptPhotoIds is { Count: > 0 } rp
+                    ? System.Text.Json.JsonSerializer.Serialize(rp) : null,
                 Status = "Submitted",
                 CreatedAt = DateTime.UtcNow,
                 CompletedAt = DateTime.UtcNow
@@ -1098,6 +1102,9 @@ public class JobsController : ControllerBase
 public class SubmitCompletionRequest
 {
     public string? CompletionNotes { get; set; }
+    // File IDs returned by POST /api/files/upload.
+    public List<string>? CompletionPhotoIds { get; set; }
+    public List<string>? ReceiptPhotoIds { get; set; }
 }
 
 public class UpdateJobPhasesRequest

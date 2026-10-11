@@ -88,12 +88,15 @@ try
     }
     builder.Services.AddScoped<ServiceProviderAPI.Services.IRateSplitService, ServiceProviderAPI.Services.RateSplitService>();
 
-    // Phase 1E: Insurance service abstraction (no provider implementation yet)
-    Console.WriteLine("🛡️ Adding insurance service abstraction...");
-    builder.Services.AddScoped<ServiceProviderAPI.Services.Abstractions.IInsuranceProvider>(sp => null!);
+    // Phase 1E: Insurance service — yProHub-backed coverage (no external underwriter yet).
+    Console.WriteLine("🛡️ Adding insurance provider...");
+    builder.Services.AddScoped<ServiceProviderAPI.Services.Abstractions.IInsuranceProvider,
+        ServiceProviderAPI.Services.Providers.PlaceholderInsuranceProvider>();
 
-    // Phase 5: File storage service (placeholder for future implementation)
-    // builder.Services.AddScoped<ServiceProviderAPI.Services.Abstractions.IFileStorageService, ...>();
+    // Phase 5: File storage service — local disk implementation (swap for Blob/S3 in prod).
+    Console.WriteLine("🗂️ Adding file storage service...");
+    builder.Services.AddScoped<ServiceProviderAPI.Services.Abstractions.IFileStorageService,
+        ServiceProviderAPI.Services.Providers.LocalFileStorageService>();
 
     // Payout service
     builder.Services.AddScoped<ServiceProviderAPI.Services.IPayoutService, ServiceProviderAPI.Services.PayoutService>();
@@ -108,8 +111,10 @@ try
     Console.WriteLine("🌱 Adding seed data service...");
     builder.Services.AddScoped<SeedDataService>();
 
-    // TODO: Add BidExpirationService (BackgroundService) to proactively mark overdue Pending bids
-    // as Expired on a periodic sweep. For now, expiration is enforced only at accept-time in AcceptBid.
+    // Periodic sweep that marks overdue Pending bids as Expired (accept-time checks in
+    // JobsController.AcceptBid still reject an individual expired bid as a safety net).
+    Console.WriteLine("⏰ Adding bid expiration background service...");
+    builder.Services.AddHostedService<ServiceProviderAPI.Services.BidExpirationService>();
 
     // Add HttpContextAccessor for accessing current HTTP context
     builder.Services.AddHttpContextAccessor();
@@ -308,6 +313,9 @@ try
 
     // Use CORS
     app.UseCors("AllowAngular");
+
+    // Serve uploaded files (KYC docs, job attachments, completion photos) from wwwroot.
+    app.UseStaticFiles();
 
     // Configure the HTTP request pipeline.
     if (app.Environment.IsDevelopment())
