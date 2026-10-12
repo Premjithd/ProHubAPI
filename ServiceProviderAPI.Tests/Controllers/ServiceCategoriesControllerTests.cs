@@ -128,4 +128,128 @@ public class ServiceCategoriesControllerTests
 
         Assert.IsType<NotFoundResult>(result);
     }
+
+    private static Pro CompletePro(string email) => new()
+    {
+        ProName = "Pro", Email = email, PhoneNumber = "9000000000", BusinessName = "Biz", IsProfileComplete = true,
+    };
+
+    [Fact]
+    public async Task GetCategories_CountsDistinctProsWithCompleteProfile()
+    {
+        var db = TestSupport.NewDb();
+        var cat = Cat("Plumbing");
+        var proA = CompletePro("a@test.com");
+        var proB = CompletePro("b@test.com");
+        var proIncomplete = new Pro
+        {
+            ProName = "P", Email = "c@test.com", PhoneNumber = "9", BusinessName = "B", IsProfileComplete = false,
+        };
+        db.ServiceCategories.Add(cat);
+        db.Pros.AddRange(proA, proB, proIncomplete);
+        await db.SaveChangesAsync();
+        db.Services.AddRange(
+            new Service { Name = "s1", Description = "d", ProId = proA.Id, ServiceCategoryId = cat.Id },
+            new Service { Name = "s2", Description = "d", ProId = proB.Id, ServiceCategoryId = cat.Id },
+            new Service { Name = "s3", Description = "d", ProId = proIncomplete.Id, ServiceCategoryId = cat.Id });
+        await db.SaveChangesAsync();
+        var controller = new ServiceCategoriesController(db);
+
+        var result = await controller.GetCategories();
+
+        var only = Assert.Single(Assert.IsAssignableFrom<IEnumerable<ServiceCategory>>(result.Value));
+        Assert.Equal(2, only.ServiceCount); // proA + proB; the incomplete pro is excluded
+    }
+
+    [Fact]
+    public async Task GetAllCategories_ReturnsActiveAndInactive_WithCounts()
+    {
+        var db = TestSupport.NewDb();
+        var active = Cat("Active");
+        db.ServiceCategories.AddRange(active, Cat("Inactive", active: false));
+        var pro = CompletePro("x@test.com");
+        db.Pros.Add(pro);
+        await db.SaveChangesAsync();
+        db.Services.Add(new Service { Name = "s", Description = "d", ProId = pro.Id, ServiceCategoryId = active.Id });
+        await db.SaveChangesAsync();
+        var controller = new ServiceCategoriesController(db);
+
+        var result = await controller.GetAllCategories();
+
+        var list = Assert.IsAssignableFrom<IEnumerable<ServiceCategory>>(result.Value).ToList();
+        Assert.Equal(new[] { "Active", "Inactive" }, list.Select(c => c.Name)); // inactive included
+        Assert.Equal(1, list.Single(c => c.Name == "Active").ServiceCount);
+    }
+
+    [Fact]
+    public async Task UpdateCategory_ConcurrencyAndStillExists_Rethrows()
+    {
+        var (ctx, id, _) = SeedThrowingContext(deleteOnSave: false);
+        var controller = new ServiceCategoriesController(ctx);
+
+        // SaveChanges throws concurrency, the row still exists → the exception propagates.
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(
+            () => controller.UpdateCategory(id, new ServiceCategory { Id = id, Name = "New" }));
+    }
+
+    [Fact]
+    public async Task UpdateCategory_ConcurrencyAfterConcurrentDelete_ReturnsNotFound()
+    {
+        var (ctx, id, _) = SeedThrowingContext(deleteOnSave: true);
+        var controller = new ServiceCategoriesController(ctx);
+
+        // SaveChanges throws concurrency and the row was deleted meanwhile → NotFound.
+        var result = await controller.UpdateCategory(id, new ServiceCategory { Id = id, Name = "New" });
+
+        Assert.IsType<NotFoundResult>(result);
+    }
+
+    private static (ConcurrencyThrowingContext ctx, int id, string dbName) SeedThrowingContext(bool deleteOnSave)
+    {
+        var dbName = $"db-{Guid.NewGuid()}";
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>().UseInMemoryDatabase(dbName).Options;
+        int id;
+        using (var seed = new ApplicationDbContext(options))
+        {
+            var cat = new ServiceCategory { Name = "Existing" };
+            seed.ServiceCategories.Add(cat);
+            seed.SaveChanges();
+            id = cat.Id;
+        }
+        var ctx = new ConcurrencyThrowingContext(options)
+        {
+            DbName = dbName,
+            DeleteCategoryIdOnSave = deleteOnSave ? id : null,
+        };
+        return (ctx, id, dbName);
+    }
+
+    /// <summary>
+    /// A context whose async save always throws a concurrency exception, optionally
+    /// deleting a row first (via a sibling context on the same in-memory store) to
+    /// simulate a concurrent delete committed by another request.
+    /// </summary>
+    private sealed class ConcurrencyThrowingContext : ApplicationDbContext
+    {
+        public required string DbName { get; init; }
+        public int? DeleteCategoryIdOnSave { get; init; }
+
+        public ConcurrencyThrowingContext(DbContextOptions<ApplicationDbContext> options) : base(options) { }
+
+        public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+        {
+            if (DeleteCategoryIdOnSave is int id)
+            {
+                var opts = new DbContextOptionsBuilder<ApplicationDbContext>().UseInMemoryDatabase(DbName).Options;
+                using var sibling = new ApplicationDbContext(opts);
+                var row = sibling.ServiceCategories.Find(id);
+                if (row != null)
+                {
+                    sibling.ServiceCategories.Remove(row);
+                    sibling.SaveChanges();
+                }
+            }
+            throw new DbUpdateConcurrencyException("simulated concurrency conflict");
+        }
+    }
 }
