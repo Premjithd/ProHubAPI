@@ -37,22 +37,36 @@ public class BusinessesController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> PreRegister([FromBody] PreRegisterBusinessRequest req)
     {
+        // Reuse an existing pending business instead of inserting a duplicate
+        // when the user goes back and forth during signup. Two ways we match:
+        //   1. BusinessId round-tripped from the client (same session).
+        //   2. Same name + phone — covers a page refresh that lost the id.
+        var existing = req.BusinessId.HasValue
+            ? await _context.Businesses.Include(b => b.Address)
+                .FirstOrDefaultAsync(b => b.Id == req.BusinessId.Value && b.Status == "Pending")
+            : await _context.Businesses.Include(b => b.Address)
+                .FirstOrDefaultAsync(b => b.Status == "Pending"
+                    && b.BusinessName == req.BusinessName
+                    && b.Phone == req.Phone);
+
+        if (existing != null)
+        {
+            existing.BusinessName = req.BusinessName;
+            existing.Phone = req.Phone;
+            existing.UpdatedAt = DateTime.UtcNow;
+            if (existing.Address != null)
+                CopyAddressFields(existing.Address, req);
+
+            await _context.SaveChangesAsync();
+            return Ok(new { businessId = existing.Id });
+        }
+
         var address = new Address
         {
             AddressType = "Business",
-            HouseNameNumber = req.HouseNameNumber ?? string.Empty,
-            Street1 = req.Street1 ?? string.Empty,
-            Street2 = req.Street2,
-            City = req.City ?? string.Empty,
-            District = req.District,
-            State = req.State ?? string.Empty,
-            Country = req.Country ?? string.Empty,
-            ZipPostalCode = req.ZipPostalCode ?? string.Empty,
-            Latitude = req.Latitude,
-            Longitude = req.Longitude,
             CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
         };
+        CopyAddressFields(address, req);
         _context.Addresses.Add(address);
         await _context.SaveChangesAsync();
 
@@ -67,6 +81,23 @@ public class BusinessesController : ControllerBase
         await _context.SaveChangesAsync();
 
         return Ok(new { businessId = biz.Id });
+    }
+
+    // Copies the mutable address fields from a pre-register request onto an
+    // Address (shared by the create and update-in-place paths above).
+    private static void CopyAddressFields(Address address, PreRegisterBusinessRequest req)
+    {
+        address.HouseNameNumber = req.HouseNameNumber ?? string.Empty;
+        address.Street1 = req.Street1 ?? string.Empty;
+        address.Street2 = req.Street2;
+        address.City = req.City ?? string.Empty;
+        address.District = req.District;
+        address.State = req.State ?? string.Empty;
+        address.Country = req.Country ?? string.Empty;
+        address.ZipPostalCode = req.ZipPostalCode ?? string.Empty;
+        address.Latitude = req.Latitude;
+        address.Longitude = req.Longitude;
+        address.UpdatedAt = DateTime.UtcNow;
     }
 
     // ── GET /api/businesses/mine ───────────────────────────────────────────
@@ -340,12 +371,140 @@ public class BusinessesController : ControllerBase
 
         return Ok(new { migrated = count });
     }
+
+    // ── GET /api/businesses/{id}/services ─────────────────────────────────
+    // List the service offerings of a business. Any active member can view.
+
+    [HttpGet("{id}/services")]
+    public async Task<IActionResult> GetServices(int id)
+    {
+        var proId = GetProId();
+        var membership = await GetActiveMembership(proId, id);
+        if (membership == null) return Forbid();
+
+        var services = await _context.Services
+            .Include(s => s.ServiceCategory)
+            .Include(s => s.Pro)
+            .Where(s => s.BusinessId == id)
+            .OrderBy(s => s.Name)
+            .Select(s => new
+            {
+                s.Id,
+                s.Name,
+                s.Description,
+                s.Price,
+                s.ImageUrl,
+                s.ServiceCategoryId,
+                CategoryName = s.ServiceCategory != null ? s.ServiceCategory.Name : null,
+                CategoryIcon = s.ServiceCategory != null ? s.ServiceCategory.Icon : null,
+                s.ProId,
+                ProName = s.Pro != null ? s.Pro.ProName : null,
+            })
+            .ToListAsync();
+
+        return Ok(services);
+    }
+
+    // ── POST /api/businesses/{id}/services ────────────────────────────────
+    // Create a service offering under the business. Owner only.
+
+    [HttpPost("{id}/services")]
+    public async Task<IActionResult> CreateService(int id, [FromBody] BusinessServiceRequest req)
+    {
+        var proId = GetProId();
+        var membership = await GetActiveMembership(proId, id);
+        if (membership == null || membership.Role != "Owner") return Forbid();
+
+        var service = new Service
+        {
+            Name = req.Name,
+            Description = req.Description,
+            Price = req.Price,
+            ImageUrl = string.IsNullOrWhiteSpace(req.ImageUrl) ? null : req.ImageUrl,
+            ServiceCategoryId = req.ServiceCategoryId,
+            ProId = proId,
+            BusinessId = id,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        _context.Services.Add(service);
+        await _context.SaveChangesAsync();
+
+        return Ok(new { id = service.Id });
+    }
+
+    // ── PUT /api/businesses/{id}/services/{serviceId} ─────────────────────
+    // Update a business service offering. Owner only.
+
+    [HttpPut("{id}/services/{serviceId}")]
+    public async Task<IActionResult> UpdateService(int id, int serviceId, [FromBody] BusinessServiceRequest req)
+    {
+        var proId = GetProId();
+        var membership = await GetActiveMembership(proId, id);
+        if (membership == null || membership.Role != "Owner") return Forbid();
+
+        var service = await _context.Services
+            .FirstOrDefaultAsync(s => s.Id == serviceId && s.BusinessId == id);
+        if (service == null) return NotFound();
+
+        service.Name = req.Name;
+        service.Description = req.Description;
+        service.Price = req.Price;
+        service.ImageUrl = string.IsNullOrWhiteSpace(req.ImageUrl) ? null : req.ImageUrl;
+        service.ServiceCategoryId = req.ServiceCategoryId;
+        service.UpdatedAt = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync();
+        return NoContent();
+    }
+
+    // ── DELETE /api/businesses/{id}/services/{serviceId} ──────────────────
+    // Remove a business service offering. Owner only.
+
+    [HttpDelete("{id}/services/{serviceId}")]
+    public async Task<IActionResult> DeleteService(int id, int serviceId)
+    {
+        var proId = GetProId();
+        var membership = await GetActiveMembership(proId, id);
+        if (membership == null || membership.Role != "Owner") return Forbid();
+
+        var service = await _context.Services
+            .FirstOrDefaultAsync(s => s.Id == serviceId && s.BusinessId == id);
+        if (service == null) return NotFound();
+
+        _context.Services.Remove(service);
+        await _context.SaveChangesAsync();
+        return NoContent();
+    }
 }
 
 // ── Request models ─────────────────────────────────────────────────────────
 
+public class BusinessServiceRequest
+{
+    [Required]
+    [StringLength(100, MinimumLength = 5)]
+    public string Name { get; set; } = null!;
+
+    [Required]
+    [StringLength(2000, MinimumLength = 20)]
+    public string Description { get; set; } = null!;
+
+    [Range(1, 9999999)]
+    public decimal Price { get; set; }
+
+    [StringLength(500)]
+    public string? ImageUrl { get; set; }
+
+    public int? ServiceCategoryId { get; set; }
+}
+
 public class PreRegisterBusinessRequest
 {
+    // Set on re-submit to update the existing pending business instead of
+    // creating a duplicate (user went back from step 2 and saved again).
+    public int? BusinessId { get; set; }
+
     [Required]
     [StringLength(200)]
     public string BusinessName { get; set; } = null!;
