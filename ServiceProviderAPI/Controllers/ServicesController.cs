@@ -18,7 +18,7 @@ public class ServicesController : ControllerBase
         _context = context;
     }
 
-    // GET: api/services?page=1&pageSize=100&categoryId=&search=&city=&sortBy=name
+    // GET: api/services?page=1&pageSize=100&categoryId=&search=&city=&pin=&sortBy=name
     [HttpGet]
     public async Task<ActionResult<PagedResult<ServiceBrowseDto>>> GetServices(
         [FromQuery] int page = 1,
@@ -26,6 +26,7 @@ public class ServicesController : ControllerBase
         [FromQuery] int? categoryId = null,
         [FromQuery] string? search = null,
         [FromQuery] string? city = null,
+        [FromQuery] string? pin = null,
         [FromQuery] string? sortBy = "name")
     {
         page = Math.Max(1, page);
@@ -40,15 +41,27 @@ public class ServicesController : ControllerBase
             query = query.Where(s => s.ServiceCategoryId == categoryId.Value);
 
         if (!string.IsNullOrEmpty(search))
-            query = query.Where(s =>
-                s.Name.Contains(search) ||
-                (s.Description != null && s.Description.Contains(search)) ||
-                (s.Pro != null && s.Pro.BusinessName != null && s.Pro.BusinessName.Contains(search)) ||
-                (s.Pro != null && s.Pro.ProName != null && s.Pro.ProName.Contains(search)));
+        {
+            // Partial word search with OR semantics: a service matches if ANY whitespace-
+            // separated term appears in any searchable field. This lets "bathroom leak"
+            // match records containing either word, while still matching partial words
+            // ("plumb" → "plumber").
+            var terms = search.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            query = query.Where(s => terms.Any(t =>
+                s.Name.Contains(t) ||
+                (s.Description != null && s.Description.Contains(t)) ||
+                (s.Pro != null && s.Pro.BusinessName != null && s.Pro.BusinessName.Contains(t)) ||
+                (s.Pro != null && s.Pro.ProName != null && s.Pro.ProName.Contains(t))));
+        }
 
         if (!string.IsNullOrEmpty(city))
             query = query.Where(s => s.Pro != null && s.Pro.Address != null &&
                 s.Pro.Address.City != null && s.Pro.Address.City.Contains(city));
+
+        // Area filter: restrict to pros located in the given PIN / postal code.
+        if (!string.IsNullOrEmpty(pin))
+            query = query.Where(s => s.Pro != null && s.Pro.Address != null &&
+                s.Pro.Address.ZipPostalCode == pin);
 
         query = sortBy switch
         {
