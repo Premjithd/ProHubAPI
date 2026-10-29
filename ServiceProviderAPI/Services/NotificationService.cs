@@ -92,7 +92,7 @@ public class NotificationService : INotificationService
             Quote expires on: {bid.ExpiresAt?.ToString("dd-MMM-yyyy HH:mm") ?? "Not specified"}
 
             Best regards,
-            ProHub Team
+            yProHub Team
             ";
 
             return await NotifyAsync(consumer.Email, consumer.PhoneNumber, subject, message);
@@ -125,7 +125,7 @@ public class NotificationService : INotificationService
             Log in to submit your quote now. You have a limited time to respond!
 
             Best regards,
-            ProHub Team
+            yProHub Team
             ";
 
             var tasks = pros.Select(pro => NotifyAsync(pro.Email, pro.PhoneNumber, subject, message));
@@ -159,7 +159,7 @@ public class NotificationService : INotificationService
             Please confirm your acceptance of this job assignment to proceed.
 
             Best regards,
-            ProHub Team
+            yProHub Team
             ";
 
             return await NotifyAsync(pro.Email, pro.PhoneNumber, subject, message);
@@ -195,7 +195,7 @@ public class NotificationService : INotificationService
             Work will commence as per the agreed date. The pro will contact you shortly.
 
             Best regards,
-            ProHub Team
+            yProHub Team
             ";
 
             return await NotifyAsync(consumer.Email, consumer.PhoneNumber, subject, message);
@@ -230,10 +230,10 @@ public class NotificationService : INotificationService
             - Review pro's completion notes
             - Verify completion OR raise a dispute
 
-            Thank you for using ProHub!
+            Thank you for using yProHub!
 
             Best regards,
-            ProHub Team
+            yProHub Team
             ";
 
             return await NotifyAsync(consumer.Email, consumer.PhoneNumber, subject, message);
@@ -264,7 +264,7 @@ public class NotificationService : INotificationService
             Please open the job to review and complete the payment.
 
             Best regards,
-            ProHub Team
+            yProHub Team
             ";
 
             return await NotifyAsync(consumer.Email, consumer.PhoneNumber, subject, message);
@@ -286,10 +286,10 @@ public class NotificationService : INotificationService
             tasks.Add(_emailChannel.SendAsync(recipientEmail, subject, message));
         }
 
-        // Send SMS (shorter message)
+        // Send SMS (shorter, brand-prefixed message)
         if (!string.IsNullOrEmpty(recipientPhone) && _smsChannel != null)
         {
-            var smsMessage = $"{subject}: {message.Substring(0, Math.Min(message.Length, 150))}...";
+            var smsMessage = BuildSmsText(subject, message);
             tasks.Add(_smsChannel.SendAsync(recipientPhone, subject, smsMessage));
         }
 
@@ -301,5 +301,21 @@ public class NotificationService : INotificationService
 
         var results = await Task.WhenAll(tasks);
         return results.Any(r => r);  // At least one channel worked
+    }
+
+    /// <summary>
+    /// Builds a concise, brand-prefixed SMS from an email subject + body. Collapses the
+    /// multi-line email copy into a single clean line capped to a sensible SMS length.
+    /// </summary>
+    private static string BuildSmsText(string subject, string message)
+    {
+        var cleanedBody = System.Text.RegularExpressions.Regex.Replace(message ?? "", @"\s+", " ").Trim();
+        var text = string.IsNullOrEmpty(cleanedBody) ? subject : $"{subject}. {cleanedBody}";
+
+        const int maxLen = 150;
+        if (text.Length > maxLen)
+            text = text.Substring(0, maxLen).TrimEnd() + "…";
+
+        return $"yProHub: {text}";
     }
 }

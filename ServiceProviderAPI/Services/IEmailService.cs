@@ -19,10 +19,10 @@ public class SmtpEmailService : IEmailService
 
     public async Task SendAdminInvitationAsync(string recipientEmail, string invitationLink)
     {
-        var subject = "ProHub Admin Invitation";
+        var subject = "yProHub Admin Invitation";
         var body = $@"
-            <h2>You're Invited to Join ProHub Admin Team</h2>
-            <p>You have been invited to become a platform administrator for ProHub.</p>
+            <h2 style=""margin:0 0 12px 0; font-size:20px; color:#1a1a1a;"">You're Invited to Join the yProHub Admin Team</h2>
+            <p>You have been invited to become a platform administrator for yProHub.</p>
             <p>
                 <a href='{invitationLink}' style='display: inline-block; padding: 10px 20px; background-color: #667eea; color: white; text-decoration: none; border-radius: 5px;'>
                     Accept Invitation
@@ -49,13 +49,15 @@ public class SmtpEmailService : IEmailService
                 client.EnableSsl = true;
                 client.Credentials = new System.Net.NetworkCredential(senderEmail, senderPassword);
 
-                var mailMessage = new System.Net.Mail.MailMessage
+                using var mailMessage = new System.Net.Mail.MailMessage
                 {
-                    From = new System.Net.Mail.MailAddress(senderEmail, "ProHub"),
+                    From = new System.Net.Mail.MailAddress(senderEmail, "yProHub"),
                     Subject = subject,
-                    Body = body,
                     IsBodyHtml = true
                 };
+
+                // Wrap the body in the shared branded shell with the logo embedded inline.
+                mailMessage.AlternateViews.Add(EmailTemplates.BuildBrandedView(body));
 
                 mailMessage.To.Add(to);
 

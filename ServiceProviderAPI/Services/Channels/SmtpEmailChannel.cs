@@ -26,9 +26,10 @@ public class SmtpEmailChannel : IEmailChannel
         try
         {
             _logger.LogInformation($"Sending email to {recipient}: {subject}");
-            
-            // Convert plain text to HTML
-            var htmlBody = $"<pre>{body}</pre>";
+
+            // Convert plain text to readable inline HTML; SmtpEmailService wraps it
+            // in the shared branded shell (logo + footer) before sending.
+            var htmlBody = EmailTemplates.TextToHtml(body);
             return await SendHtmlEmailAsync(recipient, subject, htmlBody);
         }
         catch (Exception ex)
