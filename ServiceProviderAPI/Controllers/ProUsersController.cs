@@ -97,14 +97,22 @@ public class ProUsersController : ControllerBase
         {
             var baseUrl = request.BaseUrl?.TrimEnd('/') ?? "https://app.yprohub.com";
             var inviteUrl = $"{baseUrl}/accept-pro-user-invite?token={token}";
+            // Branded HTML (SmtpEmailService wraps this in the shared shell with the
+            // logo embedded inline). Rendered as a styled button, not a raw link.
+            var body = $@"
+              <h1 style=""margin:0 0 12px 0; font-size:20px; color:#1a1a1a;"">You're invited to join {pro.BusinessName}</h1>
+              <p style=""margin:0 0 16px 0;""><strong>{pro.ProName}</strong> from <strong>{pro.BusinessName}</strong> has invited you to join their team on yProHub. Click the button below to create your account.</p>
+              <div style=""text-align:center; margin:24px 0;"">
+                <a href=""{inviteUrl}"" style=""display:inline-block; background-color:#1d4ed8; color:#ffffff; text-decoration:none; padding:12px 28px; border-radius:8px; font-size:15px; font-weight:600;"">Accept invitation</a>
+              </div>
+              <p style=""margin:0 0 6px 0; font-size:13px; color:#6b7280;"">This invite expires in <strong>7 days</strong>. If the button doesn't work, copy and paste this URL into your browser:</p>
+              <p style=""margin:0 0 20px 0; font-size:12px; word-break:break-all;""><a href=""{inviteUrl}"" style=""color:#1d4ed8;"">{inviteUrl}</a></p>
+              <p style=""margin:0; font-size:12px; color:#6b7280;"">If you weren't expecting this, you can safely ignore this email.</p>";
+
             await _emailService.SendEmailAsync(
                 normalizedEmail,
                 $"You're invited to join {pro.BusinessName} on yProHub",
-                $@"<p>Hi,</p>
-                   <p><strong>{pro.ProName}</strong> from <strong>{pro.BusinessName}</strong> has invited you to join their team on yProHub.</p>
-                   <p>Click below to create your account. This invite expires in 7 days.</p>
-                   <p><a href=""{inviteUrl}"">Accept Invitation</a></p>
-                   <p>If you weren't expecting this, you can safely ignore this email.</p>");
+                body);
         }
         catch (Exception ex)
         {
