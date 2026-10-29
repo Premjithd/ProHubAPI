@@ -3,9 +3,11 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using ServiceProviderAPI.Data;
 using ServiceProviderAPI.DTOs;
+using ServiceProviderAPI.Hubs;
 using ServiceProviderAPI.Models;
 using ServiceProviderAPI.Services;
 using ServiceProviderAPI.Services.Abstractions;
@@ -24,6 +26,7 @@ public class PaymentsController : ControllerBase
     private readonly IRateSplitService _rateSplitService;
     private readonly INotificationService _notificationService;
     private readonly IConfiguration _configuration;
+    private readonly IHubContext<NotificationHub> _hubContext;
 
     public PaymentsController(
         ApplicationDbContext context,
@@ -31,7 +34,8 @@ public class PaymentsController : ControllerBase
         IPaymentProvider paymentProvider,
         IRateSplitService rateSplitService,
         INotificationService notificationService,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IHubContext<NotificationHub> hubContext)
     {
         _context = context;
         _logger = logger;
@@ -39,6 +43,7 @@ public class PaymentsController : ControllerBase
         _rateSplitService = rateSplitService;
         _notificationService = notificationService;
         _configuration = configuration;
+        _hubContext = hubContext;
     }
 
     private int GetUserId() => int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
@@ -571,11 +576,29 @@ public class PaymentsController : ControllerBase
 
             _logger.LogInformation($"Payment verified successfully: {request.RazorpayOrderId}");
 
-            // Notify pro that payment received and needs confirmation
+            // Notify pro that payment received and needs confirmation (email/SMS)
             if (job != null && payment.Bid?.Pro != null && job.User != null)
             {
                 await _notificationService.NotifyProPaymentReceivedAsync(
                     job, payment.Bid, payment.Bid.Pro, payment.Amount);
+            }
+
+            // In-app (bell) notification for the pro — needs only the job + the bid's pro id,
+            // so it fires independently of whether Job.User / Bid.Pro navigations are loaded.
+            if (job != null && payment.Bid != null)
+            {
+                _context.JobNotifications.Add(new JobNotification
+                {
+                    JobId = job.Id,
+                    ProId = payment.Bid.ProId,
+                    NotificationType = "PaymentReceived",
+                    Message = $"Payment of ₹{payment.Amount:N0} received for \"{job.Title}\". Please confirm to proceed.",
+                    DeliveryStatus = "Sent",
+                    DeliveredAt = DateTime.UtcNow,
+                    CreatedAt = DateTime.UtcNow
+                });
+                await _context.SaveChangesAsync();
+                await _hubContext.Clients.Group($"pro-{payment.Bid.ProId}").SendAsync("NewNotification");
             }
 
             // Notify user that their payment was confirmed

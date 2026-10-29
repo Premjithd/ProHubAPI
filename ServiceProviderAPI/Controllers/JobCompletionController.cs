@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using ServiceProviderAPI.Data;
+using ServiceProviderAPI.Hubs;
 using ServiceProviderAPI.Models;
 using ServiceProviderAPI.Services;
 using System.Security.Claims;
@@ -16,15 +18,18 @@ public class JobCompletionController : ControllerBase
     private readonly ApplicationDbContext _context;
     private readonly IPayoutService _payoutService;
     private readonly ILogger<JobCompletionController> _logger;
+    private readonly IHubContext<NotificationHub> _hubContext;
 
     public JobCompletionController(
         ApplicationDbContext context,
         IPayoutService payoutService,
-        ILogger<JobCompletionController> logger)
+        ILogger<JobCompletionController> logger,
+        IHubContext<NotificationHub> hubContext)
     {
         _context = context;
         _payoutService = payoutService;
         _logger = logger;
+        _hubContext = hubContext;
     }
 
     // GET: api/jobs/{jobId}/completion
@@ -87,6 +92,20 @@ public class JobCompletionController : ControllerBase
                     _logger.LogError(ex, "Payout creation failed for Job:{JobId} — payout can be retried manually", jobId);
                 }
             }
+
+            // Notify the pro that the client verified completion and payout is in progress
+            _context.JobNotifications.Add(new JobNotification
+            {
+                JobId = job.Id,
+                ProId = job.AssignedProId.Value,
+                NotificationType = "CompletionVerified",
+                Message = $"The client verified completion of \"{job.Title}\". Your payout is being processed.",
+                DeliveryStatus = "Sent",
+                DeliveredAt = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow
+            });
+            await _context.SaveChangesAsync();
+            await _hubContext.Clients.Group($"pro-{job.AssignedProId.Value}").SendAsync("NewNotification");
         }
 
         return Ok(new { message = "Job completion verified successfully", job, completion });

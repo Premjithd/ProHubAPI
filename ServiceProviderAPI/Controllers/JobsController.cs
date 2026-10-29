@@ -808,7 +808,22 @@ public class JobsController : ControllerBase
             }
             _context.JobBids.UpdateRange(otherBids);
 
+            // Notify the pro that their bid was accepted and the job is now assigned to them
+            _context.JobNotifications.Add(new JobNotification
+            {
+                JobId = job.Id,
+                ProId = bid.ProId,
+                NotificationType = "BidAccepted",
+                Message = $"Your bid for \"{job.Title}\" was accepted — the job is now assigned to you.",
+                DeliveryStatus = "Sent",
+                DeliveredAt = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow
+            });
+
             await _context.SaveChangesAsync();
+
+            // Push real-time notification via SignalR
+            await _hubContext.Clients.Group($"pro-{bid.ProId}").SendAsync("NewNotification");
 
             return Ok(bid);
         }
