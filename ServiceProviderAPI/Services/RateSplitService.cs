@@ -22,11 +22,12 @@ public class RateSplitService : IRateSplitService
 
     private static readonly Dictionary<string, decimal> Defaults = new()
     {
-        ["commission.user_percent"] = 10,
-        ["commission.pro_percent"]  = 10,
-        ["commission.gst_percent"]  = 18,
-        ["commission.min_fee"]      = 10,
-        ["commission.max_percent"]  = 20,
+        ["commission.user_percent"]    = 10,
+        ["commission.pro_percent"]     = 10,
+        ["commission.gst_percent"]     = 18,
+        ["commission.min_fee"]         = 10,
+        ["commission.max_percent"]     = 20,
+        ["commission.pro_gst_applies"] = 1,   // 1 = charge GST on the pro-side commission, 0 = don't
     };
 
     public RateSplitService(ApplicationDbContext context, ILogger<RateSplitService> logger)
@@ -52,6 +53,7 @@ public class RateSplitService : IRateSplitService
             GstPercent            = Get("commission.gst_percent"),
             MinPlatformFee        = Get("commission.min_fee"),
             MaxCommissionPercent  = Get("commission.max_percent"),
+            ProGstApplies         = Get("commission.pro_gst_applies") != 0,
         };
     }
 
@@ -67,7 +69,8 @@ public class RateSplitService : IRateSplitService
         var userCommission      = decimal.Round(full.UserCommission * factor, 2);
         var gstOnUserCommission = decimal.Round(full.GstOnUserCommission * factor, 2);
         var proDeduction        = decimal.Round(full.ProDeduction * factor, 2);
-        var proPayout           = principal - proDeduction;
+        var gstOnProCommission  = decimal.Round(full.GstOnProCommission * factor, 2);
+        var proPayout           = principal - proDeduction - gstOnProCommission;
         var totalAmountUserPays = principal + userCommission + gstOnUserCommission;
 
         return new RateSplit
@@ -77,6 +80,7 @@ public class RateSplitService : IRateSplitService
             GstOnUserCommission   = gstOnUserCommission,
             TotalAmountUserPays   = totalAmountUserPays,
             ProDeduction          = proDeduction,
+            GstOnProCommission    = gstOnProCommission,
             ProPayout             = proPayout,
             TotalPlatformEarnings = userCommission + proDeduction,
             UserCommissionPercent = full.UserCommissionPercent,
@@ -99,9 +103,11 @@ public class RateSplitService : IRateSplitService
         var gstOnUserCommission = (userCommission * cfg.GstPercent) / 100;
         var totalAmountUserPays = bidAmount + userCommission + gstOnUserCommission;
 
-        // Pro-side: commission deducted from what the pro receives
-        var proDeduction = (bidAmount * cfg.ProCommissionPercent) / 100;
-        var proPayout    = bidAmount - proDeduction;
+        // Pro-side: commission deducted from what the pro receives, plus GST on that
+        // commission (the platform's facilitation service to the pro is a taxable supply).
+        var proDeduction       = (bidAmount * cfg.ProCommissionPercent) / 100;
+        var gstOnProCommission = cfg.ProGstApplies ? (proDeduction * cfg.GstPercent) / 100 : 0m;
+        var proPayout          = bidAmount - proDeduction - gstOnProCommission;
 
         var split = new RateSplit
         {
@@ -110,6 +116,7 @@ public class RateSplitService : IRateSplitService
             GstOnUserCommission    = gstOnUserCommission,
             TotalAmountUserPays    = totalAmountUserPays,
             ProDeduction           = proDeduction,
+            GstOnProCommission     = gstOnProCommission,
             ProPayout              = proPayout,
             TotalPlatformEarnings  = userCommission + proDeduction,
             UserCommissionPercent  = cfg.UserCommissionPercent,
@@ -120,8 +127,8 @@ public class RateSplitService : IRateSplitService
         };
 
         _logger.LogInformation(
-            "Rate split: Bid=₹{Bid:F2}, UserPays=₹{UserPays:F2}, ProPayout=₹{ProPayout:F2}, PlatformEarns=₹{Platform:F2}",
-            bidAmount, totalAmountUserPays, proPayout, split.TotalPlatformEarnings);
+            "Rate split: Bid=₹{Bid:F2}, UserPays=₹{UserPays:F2}, ProPayout=₹{ProPayout:F2}, PlatformEarns=₹{Platform:F2}, GstCollected=₹{Gst:F2}",
+            bidAmount, totalAmountUserPays, proPayout, split.TotalPlatformEarnings, gstOnUserCommission + gstOnProCommission);
 
         return split;
     }
@@ -134,6 +141,7 @@ public class RateSplitConfig
     public decimal GstPercent            { get; set; } = 18;
     public decimal MinPlatformFee        { get; set; } = 10;
     public decimal MaxCommissionPercent  { get; set; } = 20;
+    public bool    ProGstApplies         { get; set; } = true;
 }
 
 public class RateSplit
@@ -143,6 +151,7 @@ public class RateSplit
     public decimal GstOnUserCommission   { get; set; }
     public decimal TotalAmountUserPays   { get; set; }
     public decimal ProDeduction          { get; set; }
+    public decimal GstOnProCommission    { get; set; }
     public decimal ProPayout             { get; set; }
     public decimal TotalPlatformEarnings { get; set; }
     public decimal UserCommissionPercent { get; set; }

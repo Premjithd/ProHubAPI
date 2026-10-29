@@ -12,13 +12,17 @@ namespace ServiceProviderAPI.Tests;
 /// </summary>
 public class RateSplitServiceTests
 {
-    private static RateSplitService NewService()
+    private static RateSplitService NewService(params (string Key, string Value)[] settings)
     {
         // Unique database name per service so tests are isolated.
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()
             .UseInMemoryDatabase($"ratesplit-{Guid.NewGuid()}")
             .Options;
         var context = new ApplicationDbContext(options);
+        foreach (var (key, value) in settings)
+            context.AppSettings.Add(new ServiceProviderAPI.Models.AppSetting { Key = key, Value = value });
+        if (settings.Length > 0)
+            context.SaveChanges();
         return new RateSplitService(context, NullLogger<RateSplitService>.Instance);
     }
 
@@ -29,16 +33,32 @@ public class RateSplitServiceTests
 
         var split = await svc.CalculateSplitAsync(1000m);
 
-        // Defaults: user 10%, pro 10%, GST 18%, min fee 10, max 20%.
+        // Defaults: user 10%, pro 10%, GST 18%, min fee 10, max 20%, pro GST on.
         Assert.Equal(1000m, split.BidAmount);
         Assert.Equal(100m, split.UserCommission);          // 10% of 1000
         Assert.Equal(18m, split.GstOnUserCommission);      // 18% of 100
         Assert.Equal(1118m, split.TotalAmountUserPays);    // 1000 + 100 + 18
         Assert.Equal(100m, split.ProDeduction);            // 10% of 1000
-        Assert.Equal(900m, split.ProPayout);               // 1000 - 100
-        Assert.Equal(200m, split.TotalPlatformEarnings);   // 100 + 100
+        Assert.Equal(18m, split.GstOnProCommission);       // 18% of 100 (pro-side GST)
+        Assert.Equal(882m, split.ProPayout);               // 1000 - 100 - 18
+        Assert.Equal(200m, split.TotalPlatformEarnings);   // 100 + 100 (GST excluded — pass-through)
         Assert.Equal(11.8m, split.EffectiveUserChargePercent);
+        Assert.Equal(88.2m, split.EffectiveProPayoutPercent);
+    }
+
+    [Fact]
+    public async Task CalculateSplit_ProGstDisabled_ChargesNoProGst()
+    {
+        var svc = NewService(("commission.pro_gst_applies", "0"));
+
+        var split = await svc.CalculateSplitAsync(1000m);
+
+        Assert.Equal(0m, split.GstOnProCommission);
+        Assert.Equal(900m, split.ProPayout);               // 1000 - 100, no pro GST
         Assert.Equal(90m, split.EffectiveProPayoutPercent);
+        // User side is unaffected by the pro-GST toggle.
+        Assert.Equal(18m, split.GstOnUserCommission);
+        Assert.Equal(1118m, split.TotalAmountUserPays);
     }
 
     [Fact]
@@ -76,6 +96,7 @@ public class RateSplitServiceTests
             UserCommission = 100m,
             GstOnUserCommission = 18m,
             ProDeduction = 100m,
+            GstOnProCommission = 18m,
             UserCommissionPercent = 10m,
             ProCommissionPercent = 10m,
             GstPercent = 18m,
@@ -88,11 +109,12 @@ public class RateSplitServiceTests
         Assert.Equal(50m, half.UserCommission);
         Assert.Equal(9m, half.GstOnUserCommission);
         Assert.Equal(50m, half.ProDeduction);
-        Assert.Equal(450m, half.ProPayout);                // 500 - 50
+        Assert.Equal(9m, half.GstOnProCommission);         // half of 18
+        Assert.Equal(441m, half.ProPayout);                // 500 - 50 - 9
         Assert.Equal(559m, half.TotalAmountUserPays);      // 500 + 50 + 9
         Assert.Equal(100m, half.TotalPlatformEarnings);    // 50 + 50
         Assert.Equal(11.8m, half.EffectiveUserChargePercent);
-        Assert.Equal(90m, half.EffectiveProPayoutPercent);
+        Assert.Equal(88.2m, half.EffectiveProPayoutPercent);
     }
 
     [Fact]
@@ -104,6 +126,7 @@ public class RateSplitServiceTests
             UserCommission = 100m,
             GstOnUserCommission = 18m,
             ProDeduction = 100m,
+            GstOnProCommission = 18m,
         };
         var svc = NewService();
 
@@ -114,6 +137,7 @@ public class RateSplitServiceTests
         Assert.Equal(full.UserCommission, a.UserCommission + b.UserCommission);
         Assert.Equal(full.GstOnUserCommission, a.GstOnUserCommission + b.GstOnUserCommission);
         Assert.Equal(full.ProDeduction, a.ProDeduction + b.ProDeduction);
+        Assert.Equal(full.GstOnProCommission, a.GstOnProCommission + b.GstOnProCommission);
         Assert.Equal(full.BidAmount, a.BidAmount + b.BidAmount);
     }
 

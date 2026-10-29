@@ -476,6 +476,7 @@ public class PaymentsController : ControllerBase
                 platformFee = rateSplit.UserCommission,
                 gstOnPlatformFee = rateSplit.GstOnUserCommission,
                 proDeduction = rateSplit.ProDeduction,
+                gstOnProCommission = rateSplit.GstOnProCommission,
                 totalAmount = totalAmountToPay,
                 proPayout = rateSplit.ProPayout,
                 effectivePlatformFeePercent = rateSplit.EffectiveUserChargePercent,

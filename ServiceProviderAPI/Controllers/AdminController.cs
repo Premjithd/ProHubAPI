@@ -350,6 +350,7 @@ public class AdminController : ControllerBase
         await UpsertSettingAsync("commission.gst_percent",  request.GstPercent.ToString());
         await UpsertSettingAsync("commission.min_fee",      request.MinPlatformFee.ToString());
         await UpsertSettingAsync("commission.max_percent",  request.MaxCommissionPercent.ToString());
+        await UpsertSettingAsync("commission.pro_gst_applies", request.ProGstApplies ? "1" : "0");
         await _context.SaveChangesAsync();
 
         _logger.LogInformation(
@@ -1008,4 +1009,7 @@ public class UpdateCommissionConfigRequest
 
     [JsonPropertyName("maxCommissionPercent")]
     public decimal MaxCommissionPercent { get; set; }
+
+    [JsonPropertyName("proGstApplies")]
+    public bool ProGstApplies { get; set; } = true;
 }
