@@ -20,16 +20,17 @@ public class SmtpEmailService : IEmailService
     public async Task SendAdminInvitationAsync(string recipientEmail, string invitationLink)
     {
         var subject = "yProHub Admin Invitation";
+        // Branded HTML (SendEmailAsync wraps this in the shared shell with the logo
+        // embedded inline). Rendered as a styled button, not a raw link.
         var body = $@"
-            <h2 style=""margin:0 0 12px 0; font-size:20px; color:#1a1a1a;"">You're Invited to Join the yProHub Admin Team</h2>
-            <p>You have been invited to become a platform administrator for yProHub.</p>
-            <p>
-                <a href='{invitationLink}' style='display: inline-block; padding: 10px 20px; background-color: #667eea; color: white; text-decoration: none; border-radius: 5px;'>
-                    Accept Invitation
-                </a>
-            </p>
-            <p>This invitation will expire in 7 days.</p>
-            <p>If you did not expect this invitation, please ignore this email.</p>
+            <h1 style=""margin:0 0 12px 0; font-size:20px; color:#1a1a1a;"">You're invited to join the yProHub Admin Team</h1>
+            <p style=""margin:0 0 16px 0;"">You have been invited to become a platform administrator for yProHub. Click the button below to accept and set up your account.</p>
+            <div style=""text-align:center; margin:24px 0;"">
+                <a href=""{invitationLink}"" style=""display:inline-block; background-color:#1d4ed8; color:#ffffff; text-decoration:none; padding:12px 28px; border-radius:8px; font-size:15px; font-weight:600;"">Accept invitation</a>
+            </div>
+            <p style=""margin:0 0 6px 0; font-size:13px; color:#6b7280;"">This invitation expires in <strong>7 days</strong>. If the button doesn't work, copy and paste this URL into your browser:</p>
+            <p style=""margin:0 0 20px 0; font-size:12px; word-break:break-all;""><a href=""{invitationLink}"" style=""color:#1d4ed8;"">{invitationLink}</a></p>
+            <p style=""margin:0; font-size:12px; color:#6b7280;"">If you did not expect this invitation, you can safely ignore this email.</p>
         ";
 
         await SendEmailAsync(recipientEmail, subject, body);
