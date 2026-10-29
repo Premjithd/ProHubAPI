@@ -20,6 +20,7 @@ public class AuthController : ControllerBase
     private readonly IJwtService _jwtService;
     private readonly ITokenBlacklistService _blacklist;
     private readonly INotificationService _notifications;
+    private readonly IEmailService _emailService;
     private readonly IConfiguration _configuration;
     private readonly IServiceAreaService _serviceAreaService;
     private readonly IGeocodingService _geocoding;
@@ -30,6 +31,7 @@ public class AuthController : ControllerBase
         IJwtService jwtService,
         ITokenBlacklistService blacklist,
         INotificationService notifications,
+        IEmailService emailService,
         IConfiguration configuration,
         IServiceAreaService serviceAreaService,
         IGeocodingService geocoding,
@@ -39,6 +41,7 @@ public class AuthController : ControllerBase
         _jwtService = jwtService;
         _blacklist = blacklist;
         _notifications = notifications;
+        _emailService = emailService;
         _configuration = configuration;
         _serviceAreaService = serviceAreaService;
         _geocoding = geocoding;
@@ -525,21 +528,22 @@ public class AuthController : ControllerBase
         var appUrl = _configuration["AppUrl"] ?? "http://localhost:4200";
         var resetLink = $"{appUrl}/auth/reset-password?token={resetToken.Token}&userType={request.UserType}";
 
-        await _notifications.NotifyAsync(
+        // Branded HTML email (SmtpEmailService wraps this inner content in the shared
+        // shell with the logo embedded inline). Rendered as a styled button, not a raw link.
+        var body = $@"
+          <h1 style=""margin:0 0 12px 0; font-size:20px; color:#1a1a1a;"">Reset your password</h1>
+          <p style=""margin:0 0 20px 0;"">You requested a password reset for your yProHub account. Click the button below to set a new password.</p>
+          <div style=""text-align:center; margin:24px 0;"">
+            <a href=""{resetLink}"" style=""display:inline-block; background-color:#1d4ed8; color:#ffffff; text-decoration:none; padding:12px 28px; border-radius:8px; font-size:15px; font-weight:600;"">Reset password</a>
+          </div>
+          <p style=""margin:0 0 6px 0; font-size:13px; color:#6b7280;"">This link expires in <strong>1 hour</strong>. If the button doesn't work, copy and paste this URL into your browser:</p>
+          <p style=""margin:0 0 20px 0; font-size:12px; word-break:break-all;""><a href=""{resetLink}"" style=""color:#1d4ed8;"">{resetLink}</a></p>
+          <p style=""margin:0; font-size:12px; color:#6b7280;"">If you did not request this, you can safely ignore this email — your password will not change.</p>";
+
+        await _emailService.SendEmailAsync(
             request.Email,
-            null,
             "Reset your yProHub password",
-            $@"Hi,
-
-You requested a password reset for your yProHub account.
-
-Click the link below to set a new password (expires in 1 hour):
-
-{resetLink}
-
-If you did not request this, you can safely ignore this email.
-
-— yProHub Team");
+            body);
 
         return Ok(new { message = "If an account with that email exists, you will receive a reset link." });
     }
