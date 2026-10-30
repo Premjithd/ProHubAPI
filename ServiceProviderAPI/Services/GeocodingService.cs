@@ -16,6 +16,19 @@ public interface IGeocodingService
     Task<(double Lat, double Lon)?> TryGeocodeAsync(
         string? houseNumber, string? street, string? city, string? state, string? country,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns the coordinates to persist for a typed address, reconciling any client-supplied
+    /// coordinates against the address text. If no coordinates are supplied, geocodes the address.
+    /// If supplied coordinates are present but sit implausibly far from the geocoded address
+    /// (i.e. they contradict the typed city/PIN — e.g. stale device GPS), the address-derived
+    /// coordinates are used instead so location stays consistent with the postal fields.
+    /// Falls back to the supplied coordinates when the address can't be geocoded to verify.
+    /// </summary>
+    Task<(double Lat, double Lon)?> ResolveCoordinatesAsync(
+        double? suppliedLat, double? suppliedLon,
+        string? houseNumber, string? street, string? city, string? state, string? country,
+        CancellationToken ct = default);
 }
 
 public class GeocodingService : IGeocodingService
@@ -71,6 +84,61 @@ public class GeocodingService : IGeocodingService
         }
 
         return null;
+    }
+
+    // Supplied coordinates farther than this from the geocoded address are treated as
+    // contradicting the typed city/PIN. Generous enough to allow a specific address vs a
+    // city-centroid geocode, while still catching gross mismatches (wrong city/country).
+    private const double MaxConsistentKm = 50d;
+
+    public async Task<(double Lat, double Lon)?> ResolveCoordinatesAsync(
+        double? suppliedLat, double? suppliedLon,
+        string? houseNumber, string? street, string? city, string? state, string? country,
+        CancellationToken ct = default)
+    {
+        var geocoded = await TryGeocodeAsync(houseNumber, street, city, state, country, ct);
+        var chosen = ReconcileCoordinates(suppliedLat, suppliedLon, geocoded);
+
+        // Log when supplied coordinates were overridden because they contradicted the address.
+        if (suppliedLat.HasValue && chosen is not null &&
+            (chosen.Value.Lat != suppliedLat.Value || chosen.Value.Lon != suppliedLon!.Value))
+        {
+            _logger.LogWarning(
+                "Supplied coordinates ({Lat},{Lon}) contradict the typed address — using " +
+                "address-derived coordinates ({GeoLat},{GeoLon}) to stay consistent with the postal fields.",
+                suppliedLat, suppliedLon, chosen.Value.Lat, chosen.Value.Lon);
+        }
+
+        return chosen;
+    }
+
+    /// <summary>
+    /// Pure reconciliation decision (no I/O). Returns the coordinates to keep given the
+    /// client-supplied pair and the geocoded-from-address pair:
+    /// no supplied → geocoded; no geocode to verify → supplied; supplied &gt; <see cref="MaxConsistentKm"/>
+    /// from the address → geocoded (the supplied point contradicts the typed city/PIN); otherwise supplied.
+    /// </summary>
+    public static (double Lat, double Lon)? ReconcileCoordinates(
+        double? suppliedLat, double? suppliedLon, (double Lat, double Lon)? geocoded)
+    {
+        if (!suppliedLat.HasValue || !suppliedLon.HasValue)
+            return geocoded;
+        if (geocoded is null)
+            return (suppliedLat.Value, suppliedLon.Value);
+
+        var distanceKm = HaversineKm(suppliedLat.Value, suppliedLon.Value, geocoded.Value.Lat, geocoded.Value.Lon);
+        return distanceKm > MaxConsistentKm ? geocoded : (suppliedLat.Value, suppliedLon.Value);
+    }
+
+    private static double HaversineKm(double lat1, double lon1, double lat2, double lon2)
+    {
+        const double earthRadiusKm = 6371d;
+        double ToRad(double d) => d * Math.PI / 180d;
+        var dLat = ToRad(lat2 - lat1);
+        var dLon = ToRad(lon2 - lon1);
+        var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
+                Math.Cos(ToRad(lat1)) * Math.Cos(ToRad(lat2)) * Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+        return earthRadiusKm * 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
     }
 
     private static string Parts(params string?[] parts) =>

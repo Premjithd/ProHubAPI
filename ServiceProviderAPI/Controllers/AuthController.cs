@@ -187,15 +187,14 @@ public class AuthController : ControllerBase
         if (user == null || user.AddressId != null)
             return NotFound(new { message = "Draft registration not found" });
 
-        // No coordinates supplied (manual address entry) — geocode from the address text.
-        var (userLat, userLon) = (request.Latitude, request.Longitude);
-        if (!userLat.HasValue || !userLon.HasValue)
-        {
-            var coords = await _geocoding.TryGeocodeAsync(
-                request.HouseNameNumber, request.Street1, request.City, request.State, request.Country, HttpContext.RequestAborted);
-            userLat = coords?.Lat;
-            userLon = coords?.Lon;
-        }
+        // Resolve coordinates, reconciling any client-supplied lat/lon against the typed
+        // address so the saved point stays consistent with the city/PIN (geocodes if absent).
+        var userCoords = await _geocoding.ResolveCoordinatesAsync(
+            request.Latitude, request.Longitude,
+            request.HouseNameNumber, request.Street1, request.City, request.State, request.Country,
+            HttpContext.RequestAborted);
+        var userLat = userCoords?.Lat;
+        var userLon = userCoords?.Lon;
 
         var address = new Address
         {
@@ -275,15 +274,14 @@ public class AuthController : ControllerBase
                 return BadRequest(new { message = $"We are not currently operating in {request.Country}. Please check back soon as we expand our service areas." });
         }
 
-        // No coordinates supplied (manual address entry) — geocode from the address text.
-        var (proLat, proLon) = (request.Latitude, request.Longitude);
-        if (!proLat.HasValue || !proLon.HasValue)
-        {
-            var coords = await _geocoding.TryGeocodeAsync(
-                request.HouseNameNumber, request.Street1, request.City, request.State, request.Country, HttpContext.RequestAborted);
-            proLat = coords?.Lat;
-            proLon = coords?.Lon;
-        }
+        // Resolve coordinates, reconciling any client-supplied lat/lon against the typed
+        // address so the saved point stays consistent with the city/PIN (geocodes if absent).
+        var proCoords = await _geocoding.ResolveCoordinatesAsync(
+            request.Latitude, request.Longitude,
+            request.HouseNameNumber, request.Street1, request.City, request.State, request.Country,
+            HttpContext.RequestAborted);
+        var proLat = proCoords?.Lat;
+        var proLon = proCoords?.Lon;
 
         // Create or update address for the pro
         var step2Address = new Address

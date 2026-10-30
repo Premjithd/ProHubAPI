@@ -20,13 +20,15 @@ public class JobsController : ControllerBase
     private readonly ILogger<JobsController> _logger;
     private readonly IHubContext<NotificationHub> _hubContext;
     private readonly IServiceAreaService _serviceAreaService;
+    private readonly IGeocodingService _geocoding;
 
-    public JobsController(ApplicationDbContext context, ILogger<JobsController> logger, IHubContext<NotificationHub> hubContext, IServiceAreaService serviceAreaService)
+    public JobsController(ApplicationDbContext context, ILogger<JobsController> logger, IHubContext<NotificationHub> hubContext, IServiceAreaService serviceAreaService, IGeocodingService geocoding)
     {
         _context = context;
         _logger = logger;
         _hubContext = hubContext;
         _serviceAreaService = serviceAreaService;
+        _geocoding = geocoding;
     }
 
     // GET: api/jobs/my-jobs?page=1&pageSize=20&status=Open
@@ -468,6 +470,13 @@ public class JobsController : ControllerBase
                 }
             }
 
+            // Resolve coordinates, reconciling any client-supplied lat/lon against the typed
+            // service address so the saved point stays consistent with the city/PIN (geocodes if absent).
+            var jobCoords = await _geocoding.ResolveCoordinatesAsync(
+                request.Latitude, request.Longitude,
+                request.ServiceAddressHouse, request.ServiceAddressStreet1, request.ServiceAddressCity,
+                request.ServiceAddressState, request.ServiceAddressCountry, HttpContext.RequestAborted);
+
             var serviceAddress = new Address
             {
                 AddressType = "Job",
@@ -478,8 +487,8 @@ public class JobsController : ControllerBase
                 State = request.ServiceAddressState,
                 Country = request.ServiceAddressCountry,
                 ZipPostalCode = request.ServiceAddressPIN,
-                Latitude = request.Latitude,
-                Longitude = request.Longitude,
+                Latitude = jobCoords?.Lat,
+                Longitude = jobCoords?.Lon,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
