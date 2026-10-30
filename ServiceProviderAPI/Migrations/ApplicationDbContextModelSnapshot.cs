@@ -1545,7 +1545,7 @@ namespace ServiceProviderAPI.Migrations
                     b.HasOne("ServiceProviderAPI.Models.Pro", "RequestedPro")
                         .WithMany()
                         .HasForeignKey("RequestedProId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.HasOne("ServiceProviderAPI.Models.Address", "ServiceAddress")
                         .WithMany()

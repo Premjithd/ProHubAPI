@@ -12,7 +12,7 @@ using ServiceProviderAPI.Data;
 namespace ServiceProviderAPI.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261030064823_AddRequestedProToJob")]
+    [Migration("20261030154207_AddRequestedProToJob")]
     partial class AddRequestedProToJob
     {
         /// <inheritdoc />
@@ -1548,7 +1548,7 @@ namespace ServiceProviderAPI.Migrations
                     b.HasOne("ServiceProviderAPI.Models.Pro", "RequestedPro")
                         .WithMany()
                         .HasForeignKey("RequestedProId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.HasOne("ServiceProviderAPI.Models.Address", "ServiceAddress")
                         .WithMany()

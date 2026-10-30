@@ -26,8 +26,7 @@ namespace ServiceProviderAPI.Migrations
                 table: "Jobs",
                 column: "RequestedProId",
                 principalTable: "Pros",
-                principalColumn: "Id",
-                onDelete: ReferentialAction.SetNull);
+                principalColumn: "Id");
         }
 
         /// <inheritdoc />

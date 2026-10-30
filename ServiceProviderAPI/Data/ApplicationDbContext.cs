@@ -117,9 +117,11 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<Job>()
             .HasOne(j => j.RequestedPro)
             .WithMany()
+            // NO ACTION (not SetNull) — Jobs already has a SET NULL FK to Pros via AssignedProId,
+            // and SQL Server rejects a second cascade/SET NULL path to the same table.
             .HasForeignKey(j => j.RequestedProId)
             .IsRequired(false)
-            .OnDelete(DeleteBehavior.SetNull);
+            .OnDelete(DeleteBehavior.NoAction);
 
         modelBuilder.Entity<JobBid>()
             .HasOne(jb => jb.Job)
