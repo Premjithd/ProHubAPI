@@ -114,6 +114,13 @@ public class ApplicationDbContext : DbContext
             .IsRequired(false)
             .OnDelete(DeleteBehavior.SetNull);
 
+        modelBuilder.Entity<Job>()
+            .HasOne(j => j.RequestedPro)
+            .WithMany()
+            .HasForeignKey(j => j.RequestedProId)
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.SetNull);
+
         modelBuilder.Entity<JobBid>()
             .HasOne(jb => jb.Job)
             .WithMany()

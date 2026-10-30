@@ -244,6 +244,9 @@ namespace ServiceProviderAPI.Migrations
                         .HasMaxLength(150)
                         .HasColumnType("nvarchar(150)");
 
+                    b.Property<int?>("RequestedProId")
+                        .HasColumnType("int");
+
                     b.Property<int?>("ServiceAddressId")
                         .HasColumnType("int");
 
@@ -272,6 +275,8 @@ namespace ServiceProviderAPI.Migrations
                     b.HasIndex("AssignedProId");
 
                     b.HasIndex("CategoryId");
+
+                    b.HasIndex("RequestedProId");
 
                     b.HasIndex("ServiceAddressId");
 
@@ -1537,6 +1542,11 @@ namespace ServiceProviderAPI.Migrations
                         .WithMany()
                         .HasForeignKey("CategoryId");
 
+                    b.HasOne("ServiceProviderAPI.Models.Pro", "RequestedPro")
+                        .WithMany()
+                        .HasForeignKey("RequestedProId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("ServiceProviderAPI.Models.Address", "ServiceAddress")
                         .WithMany()
                         .HasForeignKey("ServiceAddressId")
@@ -1551,6 +1561,8 @@ namespace ServiceProviderAPI.Migrations
                     b.Navigation("AssignedPro");
 
                     b.Navigation("Category");
+
+                    b.Navigation("RequestedPro");
 
                     b.Navigation("ServiceAddress");
 

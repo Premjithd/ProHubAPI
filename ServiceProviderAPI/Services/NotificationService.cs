@@ -1,3 +1,4 @@
+using System.Net;
 using ServiceProviderAPI.Models;
 using ServiceProviderAPI.Data;
 
@@ -18,6 +19,11 @@ public interface INotificationService
     /// Notify pros about a new job in their service area
     /// </summary>
     Task<bool> NotifyProsNewJobAsync(Job job, List<Pro> pros);
+
+    /// <summary>
+    /// Directly invite a single pro — whom the consumer specifically requested — to bid on a job.
+    /// </summary>
+    Task<bool> NotifyProDirectJobRequestAsync(Job job, Pro pro, User consumer, string categoryName, string jobLink);
 
     /// <summary>
     /// Notify pro that consumer has confirmed payment and waiting for pro confirmation
@@ -135,6 +141,80 @@ public class NotificationService : INotificationService
         catch (Exception ex)
         {
             _logger.LogError($"Error notifying pros of new job: {ex.Message}");
+            return false;
+        }
+    }
+
+    public async Task<bool> NotifyProDirectJobRequestAsync(Job job, Pro pro, User consumer, string categoryName, string jobLink)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(pro.Email) && string.IsNullOrEmpty(pro.PhoneNumber))
+            {
+                _logger.LogWarning($"Requested pro {pro.Id} has no email or phone to notify");
+                return false;
+            }
+
+            var consumerName = $"{consumer.FirstName} {consumer.LastName}".Trim();
+            if (string.IsNullOrWhiteSpace(consumerName)) consumerName = "A yProHub customer";
+            var subject = $"{consumerName} requested you for \"{job.Title}\" on yProHub";
+            var location = string.Join(", ",
+                new[] { job.ServiceAddress?.City, job.ServiceAddress?.State }
+                    .Where(s => !string.IsNullOrWhiteSpace(s)));
+            var budget = job.EstimatedBudget.HasValue ? $"₹{job.EstimatedBudget:N0}" : (job.Budget ?? "Not specified");
+
+            var tasks = new List<Task<bool>>();
+
+            // Branded HTML email — SmtpEmailService wraps this inner content in the shared
+            // shell (logo + footer), so we only author the body here (styled CTA button like
+            // the admin-invite template).
+            if (!string.IsNullOrEmpty(pro.Email) && _emailChannel != null)
+            {
+                var html = $@"
+                    <h1 style=""margin:0 0 12px 0; font-size:20px; color:#1a1a1a;"">You've been personally requested</h1>
+                    <p style=""margin:0 0 16px 0;"">Hi {WebUtility.HtmlEncode(pro.ProName)},</p>
+                    <p style=""margin:0 0 16px 0;""><strong>{WebUtility.HtmlEncode(consumerName)}</strong> selected you on yProHub to carry out the job below and is inviting you to place a bid.</p>
+                    <table role=""presentation"" width=""100%"" cellpadding=""0"" cellspacing=""0"" style=""background-color:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; margin:0 0 20px 0;"">
+                      <tr><td style=""padding:16px 18px; font-size:14px; color:#374151; line-height:1.7;"">
+                        <strong style=""font-size:15px; color:#111827;"">{WebUtility.HtmlEncode(job.Title)}</strong><br/>
+                        <span style=""color:#6b7280;"">Category:</span> {WebUtility.HtmlEncode(categoryName)}<br/>
+                        {(string.IsNullOrWhiteSpace(location) ? "" : $"<span style=\"color:#6b7280;\">Location:</span> {WebUtility.HtmlEncode(location)}<br/>")}
+                        <span style=""color:#6b7280;"">Budget:</span> {WebUtility.HtmlEncode(budget)}<br/>
+                        <span style=""color:#6b7280;"">Timeline:</span> {WebUtility.HtmlEncode(job.Timeline ?? "Flexible")}<br/>
+                        {(string.IsNullOrWhiteSpace(job.Description) ? "" : $"<span style=\"color:#6b7280;\">Details:</span> {WebUtility.HtmlEncode(job.Description)}")}
+                      </td></tr>
+                    </table>
+                    <div style=""text-align:center; margin:24px 0;"">
+                        <a href=""{jobLink}"" style=""display:inline-block; background-color:#1d4ed8; color:#ffffff; text-decoration:none; padding:12px 28px; border-radius:8px; font-size:15px; font-weight:600;"">View job &amp; place your bid</a>
+                    </div>
+                    <p style=""margin:0 0 6px 0; font-size:13px; color:#6b7280;"">If the button doesn't work, copy and paste this URL into your browser:</p>
+                    <p style=""margin:0 0 20px 0; font-size:12px; word-break:break-all;""><a href=""{jobLink}"" style=""color:#1d4ed8;"">{jobLink}</a></p>
+                    <p style=""margin:0; font-size:12px; color:#6b7280;"">Other professionals may also bid on this job, so respond promptly to win the work.</p>
+                ";
+                tasks.Add(_emailChannel.SendHtmlEmailAsync(pro.Email, subject, html));
+            }
+
+            // Concise branded SMS
+            if (!string.IsNullOrEmpty(pro.PhoneNumber) && _smsChannel != null)
+            {
+                var smsText = BuildSmsText(
+                    $"{consumerName} requested you for \"{job.Title}\"",
+                    $"Place your bid now: {jobLink}");
+                tasks.Add(_smsChannel.SendAsync(pro.PhoneNumber, subject, smsText));
+            }
+
+            if (tasks.Count == 0)
+            {
+                _logger.LogWarning($"No notification channels available to send direct request to pro {pro.Id}");
+                return false;
+            }
+
+            var results = await Task.WhenAll(tasks);
+            return results.Any(r => r);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error sending direct job request to pro {pro.Id}: {ex.Message}");
             return false;
         }
     }

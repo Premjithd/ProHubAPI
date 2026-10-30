@@ -21,14 +21,18 @@ public class JobsController : ControllerBase
     private readonly IHubContext<NotificationHub> _hubContext;
     private readonly IServiceAreaService _serviceAreaService;
     private readonly IGeocodingService _geocoding;
+    private readonly INotificationService _notificationService;
+    private readonly IConfiguration _configuration;
 
-    public JobsController(ApplicationDbContext context, ILogger<JobsController> logger, IHubContext<NotificationHub> hubContext, IServiceAreaService serviceAreaService, IGeocodingService geocoding)
+    public JobsController(ApplicationDbContext context, ILogger<JobsController> logger, IHubContext<NotificationHub> hubContext, IServiceAreaService serviceAreaService, IGeocodingService geocoding, INotificationService notificationService, IConfiguration configuration)
     {
         _context = context;
         _logger = logger;
         _hubContext = hubContext;
         _serviceAreaService = serviceAreaService;
         _geocoding = geocoding;
+        _notificationService = notificationService;
+        _configuration = configuration;
     }
 
     // GET: api/jobs/my-jobs?page=1&pageSize=20&status=Open
@@ -247,6 +251,8 @@ public class JobsController : ControllerBase
         j.Description, j.Location, j.Budget, j.EstimatedBudget, j.Timeline,
         j.Attachments, j.Status, j.IsBid, j.AssignedProId, j.JobPhases,
         j.ContactPersonName, j.ContactPersonPhone,
+        j.RequestedProId,
+        RequestedPro = j.RequestedPro == null ? null : new { j.RequestedPro.Id, j.RequestedPro.ProName, j.RequestedPro.BusinessName },
         j.CreatedAt, j.UpdatedAt,
         ServiceAddressHouse = j.ServiceAddress != null ? j.ServiceAddress.HouseNameNumber : null,
         ServiceAddressStreet1 = j.ServiceAddress != null ? j.ServiceAddress.Street1 : null,
@@ -508,6 +514,7 @@ public class JobsController : ControllerBase
                 ServiceAddress = serviceAddress,
                 ContactPersonName = request.ContactPersonName,
                 ContactPersonPhone = request.ContactPersonPhone,
+                RequestedProId = request.RequestedProId,
                 Status = "Open",
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
@@ -526,6 +533,11 @@ public class JobsController : ControllerBase
                     .Select(s => s.ProId)
                     .Distinct()
                     .ToListAsync();
+
+                // The specifically-requested pro gets a dedicated direct invite below — exclude
+                // them here so they don't also receive the generic category notification.
+                if (job.RequestedProId.HasValue)
+                    matchingProIds.Remove(job.RequestedProId.Value);
 
                 if (matchingProIds.Count > 0)
                 {
@@ -547,6 +559,53 @@ public class JobsController : ControllerBase
                     var pushTasks = matchingProIds.Select(proId =>
                         _hubContext.Clients.Group($"pro-{proId}").SendAsync("NewNotification"));
                     await Task.WhenAll(pushTasks);
+                }
+            }
+
+            // Directly invite the pro the consumer specifically requested (if any). The job stays
+            // Open for public bidding — this is an extra, targeted invite (in-app + email + SMS).
+            if (job.RequestedProId.HasValue)
+            {
+                try
+                {
+                    var requestedPro = await _context.Pros.FindAsync(job.RequestedProId.Value);
+                    if (requestedPro != null)
+                    {
+                        var categoryName = job.CategoryId.HasValue
+                            ? await _context.ServiceCategories
+                                .Where(c => c.Id == job.CategoryId.Value)
+                                .Select(c => c.Name)
+                                .FirstOrDefaultAsync() ?? "General"
+                            : "General";
+
+                        var consumerName = $"{poster.FirstName} {poster.LastName}".Trim();
+                        if (string.IsNullOrWhiteSpace(consumerName)) consumerName = "A yProHub customer";
+
+                        _context.JobNotifications.Add(new JobNotification
+                        {
+                            JobId = job.Id,
+                            ProId = requestedPro.Id,
+                            NotificationType = "DirectRequest",
+                            Message = $"{consumerName} requested you directly for \"{job.Title}\" — submit your bid.",
+                            DeliveryStatus = "Sent",
+                            DeliveredAt = DateTime.UtcNow,
+                            CreatedAt = DateTime.UtcNow
+                        });
+                        await _context.SaveChangesAsync();
+
+                        await _hubContext.Clients.Group($"pro-{requestedPro.Id}").SendAsync("NewNotification");
+
+                        var appUrl = (_configuration["AppUrl"] ?? "http://localhost:4200").TrimEnd('/');
+                        var jobLink = $"{appUrl}/available-jobs";
+                        await _notificationService.NotifyProDirectJobRequestAsync(job, requestedPro, poster, categoryName, jobLink);
+
+                        _logger.LogInformation($"📨 Sent direct job request for job {job.Id} to pro {requestedPro.Id}");
+                    }
+                }
+                catch (Exception notifyEx)
+                {
+                    // A failed invite must never fail job creation.
+                    _logger.LogError($"⚠️ Failed to send direct job request for job {job.Id}: {notifyEx.Message}");
                 }
             }
 
@@ -1171,6 +1230,8 @@ public class CreateJobRequest
     // Coordinates (supplied by frontend address autofill)
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
+    // The pro the consumer picked from the Services page (non-binding direct invite)
+    public int? RequestedProId { get; set; }
 }
 
 public class UpdateJobRequest

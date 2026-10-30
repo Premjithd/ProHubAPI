@@ -52,6 +52,10 @@ public class Job
 
     public int? AssignedProId { get; set; }
 
+    // The pro the consumer specifically requested (e.g. picked from the Services page).
+    // Non-binding: the job stays Open for public bidding; this pro just gets a direct invite.
+    public int? RequestedProId { get; set; }
+
     [StringLength(5000)]
     public string? JobPhases { get; set; }  // JSON array of phases with completion status
 
@@ -68,6 +72,9 @@ public class Job
 
     [ForeignKey("AssignedProId")]
     public Pro? AssignedPro { get; set; }
+
+    [ForeignKey("RequestedProId")]
+    public Pro? RequestedPro { get; set; }
 
     [ForeignKey("CategoryId")]
     public ServiceCategory? Category { get; set; }
