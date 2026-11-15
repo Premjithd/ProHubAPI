@@ -565,6 +565,7 @@ public class AuthController : ControllerBase
             pro.PasswordHash = BC.HashPassword(request.NewPassword);
             pro.FailedLoginAttempts = 0;
             pro.LockoutUntil = null;
+            await RevokeActiveRefreshTokensAsync(pro.Id, isPro: true);
         }
         else
         {
@@ -573,6 +574,7 @@ public class AuthController : ControllerBase
             user.PasswordHash = BC.HashPassword(request.NewPassword);
             user.FailedLoginAttempts = 0;
             user.LockoutUntil = null;
+            await RevokeActiveRefreshTokensAsync(user.Id, isPro: false);
         }
 
         tokenEntry.IsUsed = true;
@@ -663,5 +665,25 @@ public class AuthController : ControllerBase
         _context.RefreshTokens.Add(token);
         await _context.SaveChangesAsync();
         return token;
+    }
+
+    /// <summary>
+    /// Revokes all active refresh tokens for an account (e.g. after a password reset) so existing
+    /// sessions can't be renewed. Pro and consumer tokens share the numeric id space but are
+    /// distinguished by SubjectType ("Pro" vs "User"/"Admin"). The caller persists via SaveChanges.
+    /// </summary>
+    private async Task RevokeActiveRefreshTokensAsync(int subjectId, bool isPro)
+    {
+        var tokens = await _context.RefreshTokens
+            .Where(rt => rt.SubjectId == subjectId && !rt.IsRevoked &&
+                         (isPro ? rt.SubjectType == "Pro" : rt.SubjectType != "Pro"))
+            .ToListAsync();
+
+        var now = DateTime.UtcNow;
+        foreach (var rt in tokens)
+        {
+            rt.IsRevoked = true;
+            rt.RevokedAt = now;
+        }
     }
 }

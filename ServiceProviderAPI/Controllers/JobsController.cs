@@ -976,7 +976,7 @@ public class JobsController : ControllerBase
             if (job.UserId != userId)
                 return Forbid("You can only cancel your own jobs");
 
-            var nonCancellableStatuses = new[] { "Payment Made", "Pro Confirmed", "In Progress", "Completion Submitted", "Completed", "Cancelled" };
+            var nonCancellableStatuses = new[] { "Payment Made", "In Progress", "Completion Submitted", "Completed", "Cancelled" };
             if (nonCancellableStatuses.Contains(job.Status))
                 return BadRequest($"Cannot cancel a job with status '{job.Status}'. Payment has already been made.");
 

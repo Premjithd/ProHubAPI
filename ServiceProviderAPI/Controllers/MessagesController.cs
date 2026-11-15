@@ -36,6 +36,13 @@ public class MessagesController : ControllerBase
             // If specific user pair parameters are provided, get messages between them
             if (userId1.HasValue && userId2.HasValue && !string.IsNullOrEmpty(userType1) && !string.IsNullOrEmpty(userType2))
             {
+                // Access control: only a participant in the conversation (or an admin) may read it.
+                var callerIdStr = _httpContextAccessor.HttpContext?.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                int.TryParse(callerIdStr, out int callerId);
+                bool isAdmin = _httpContextAccessor.HttpContext?.User.IsInRole("Admin") ?? false;
+                if (!isAdmin && callerId != userId1.Value && callerId != userId2.Value)
+                    return Forbid();
+
                 // Get the MessageIndex for this conversation pair
                 var messageIndex = await _context.MessageIndexes
                     .FirstOrDefaultAsync(mi => 
@@ -104,17 +111,24 @@ public class MessagesController : ControllerBase
         pageSize = Math.Clamp(pageSize, 1, 100);
         try
         {
-            // If userId is not provided, get it from claims
+            // Resolve the caller from claims. A client-supplied userId is only honoured for the
+            // caller's own id or for admins — otherwise a user could read another's conversation list.
+            var userIdClaim = _httpContextAccessor.HttpContext?.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            int.TryParse(userIdClaim, out int claimUserId);
+            bool callerIsAdmin = _httpContextAccessor.HttpContext?.User.IsInRole("Admin") ?? false;
+
             int actualUserId;
             if (userId.HasValue && userId.Value > 0)
             {
+                if (!callerIsAdmin && userId.Value != claimUserId)
+                    return Forbid();
                 actualUserId = userId.Value;
             }
             else
             {
-                var userIdClaim = _httpContextAccessor.HttpContext?.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-                if (!int.TryParse(userIdClaim, out actualUserId))
+                if (claimUserId == 0)
                     return Unauthorized(new { message = "Unable to determine user" });
+                actualUserId = claimUserId;
             }
 
             // Validate userType parameter
@@ -245,8 +259,8 @@ public class MessagesController : ControllerBase
             if (string.IsNullOrWhiteSpace(request?.Content))
                 return BadRequest(new { message = "Message content is required" });
 
-            if (request.RecipientId <= 0 || string.IsNullOrWhiteSpace(request.SenderType))
-                return BadRequest(new { message = "Valid recipient ID and sender type are required" });
+            if (request.RecipientId <= 0)
+                return BadRequest(new { message = "A valid recipient ID is required" });
 
             // Get current user ID from claims
             var userIdClaim = _httpContextAccessor.HttpContext?.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
@@ -254,18 +268,14 @@ public class MessagesController : ControllerBase
             if (!int.TryParse(userIdClaim, out int senderId))
                 return Unauthorized(new { message = "Unable to determine sender" });
 
-            string senderType = request.SenderType;
+            // Derive the sender type from the authenticated role, not the request body —
+            // a caller must not be able to label their message as coming from the other party.
+            bool senderIsPro = _httpContextAccessor.HttpContext?.User.IsInRole("Pro") ?? false;
+            string senderType = senderIsPro ? "Pro" : "User";
             int recipientId = request.RecipientId;
 
-            // Determine recipient type based on the recipient ID
-            string recipientType = "User"; // Default to User, could be Pro
-            // var proRecipient = await _context.Pros.FirstOrDefaultAsync(p => p.Id == recipientId);
-            // if (proRecipient != null)
-            //     recipientType = "Pro";
-            if(senderType == "User")
-                {recipientType = "Pro";}
-            else
-                {recipientType = "User";}
+            // A User always messages a Pro and vice-versa.
+            string recipientType = senderIsPro ? "User" : "Pro";
 
             // Get or create MessageIndex entry
             var messageIndex = await GetOrCreateMessageIndex(senderId, senderType, recipientId, recipientType);
@@ -332,6 +342,13 @@ public class MessagesController : ControllerBase
             var message = await _context.Messages.FindAsync(messageId);
             if (message == null)
                 return NotFound(new { message = "Message not found" });
+
+            // Only the recipient (or an admin) may mark a message as read.
+            var callerIdStr = _httpContextAccessor.HttpContext?.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            int.TryParse(callerIdStr, out int callerId);
+            bool isAdmin = _httpContextAccessor.HttpContext?.User.IsInRole("Admin") ?? false;
+            if (!isAdmin && message.RecipientId != callerId)
+                return Forbid();
 
             message.IsRead = true;
             message.ReadAt = DateTime.UtcNow;
