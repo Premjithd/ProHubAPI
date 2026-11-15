@@ -29,6 +29,17 @@ internal static class TestSupport
         return controller;
     }
 
+    /// <summary>Attach an unauthenticated caller (no identity claims) to a controller.</summary>
+    public static TController AsAnonymous<TController>(this TController controller)
+        where TController : ControllerBase
+    {
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity()) },
+        };
+        return controller;
+    }
+
     /// <summary>A fresh in-memory <see cref="ApplicationDbContext"/> with a unique database name.</summary>
     public static ApplicationDbContext NewDb()
     {

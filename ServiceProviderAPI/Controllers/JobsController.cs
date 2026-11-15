@@ -716,6 +716,12 @@ public class JobsController : ControllerBase
             if (job.Status == "Completed")
                 return BadRequest(new { message = "This job is already completed" });
 
+            // Completion can only be submitted once the job has been paid for and started.
+            // ("Completion Submitted" is allowed through for the disputed re-submission path below.)
+            var completableStatuses = new[] { "Payment Made", "In Progress", "Completion Submitted" };
+            if (!completableStatuses.Contains(job.Status))
+                return BadRequest(new { message = $"Completion can only be submitted after payment (current status '{job.Status}')" });
+
             // Allow re-submission only when the completion was disputed; otherwise block duplicate submissions
             var existing = await _context.JobCompletions.FirstOrDefaultAsync(c => c.JobId == id);
             if (job.Status == "Completion Submitted" && existing?.Status != "Disputed")
@@ -774,6 +780,10 @@ public class JobsController : ControllerBase
             var job = await _context.Jobs.FindAsync(id);
             if (job == null)
                 return NotFound("Job not found");
+
+            // Only open jobs accept bids — a job that's assigned, paid, completed or cancelled is closed.
+            if (job.Status != "Open")
+                return BadRequest(new { message = $"This job is no longer accepting bids (status '{job.Status}')" });
 
             // Check if Pro has already bid on this job
             var existingBid = await _context.JobBids
@@ -839,6 +849,11 @@ public class JobsController : ControllerBase
 
             if (job.UserId != userId)
                 return Forbid("You can only manage bids for your own jobs");
+
+            // A bid can only be accepted while the job is still open. Once it's assigned/paid,
+            // accepting a (late) bid would silently reassign the pro and orphan the payment.
+            if (job.Status != "Open")
+                return BadRequest(new { message = $"Bids can only be accepted while the job is open (status '{job.Status}')" });
 
             // Find the bid
             var bid = await _context.JobBids.FindAsync(bidId);
