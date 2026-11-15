@@ -168,6 +168,11 @@ public class ProsController : ControllerBase
         if (id != request.Id)
             return BadRequest();
 
+        // A pro may only edit their own profile (admins reach pro management elsewhere).
+        var callerId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "0");
+        if (!User.IsInRole("Admin") && callerId != id)
+            return Forbid();
+
         var existingPro = await _context.Pros.Include(p => p.Address).FirstOrDefaultAsync(p => p.Id == id);
         if (existingPro == null)
             return NotFound();
@@ -256,6 +261,11 @@ public class ProsController : ControllerBase
     [Authorize(Roles = "Pro")]
     public async Task<IActionResult> DeletePro(int id)
     {
+        // A pro may only delete their own account.
+        var callerId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "0");
+        if (!User.IsInRole("Admin") && callerId != id)
+            return Forbid();
+
         var pro = await _context.Pros.Include(p => p.Address).FirstOrDefaultAsync(p => p.Id == id);
         if (pro == null)
             return NotFound();

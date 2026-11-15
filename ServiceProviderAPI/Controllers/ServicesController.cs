@@ -18,6 +18,8 @@ public class ServicesController : ControllerBase
         _context = context;
     }
 
+    private int CallerId() => int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "0");
+
     // GET: api/services?page=1&pageSize=100&categoryId=&search=&city=&pin=&sortBy=name
     [HttpGet]
     public async Task<ActionResult<PagedResult<ServiceBrowseDto>>> GetServices(
@@ -137,6 +139,8 @@ public class ServicesController : ControllerBase
     [Authorize(Roles = "Pro")]
     public async Task<ActionResult<Service>> CreateService(Service service)
     {
+        // The service belongs to the authenticated pro — never trust a ProId from the body.
+        service.ProId = CallerId();
         service.CreatedAt = DateTime.UtcNow;
         service.UpdatedAt = DateTime.UtcNow;
 
@@ -160,6 +164,10 @@ public class ServicesController : ControllerBase
         {
             return NotFound();
         }
+
+        // A pro may only edit their own service.
+        if (existingService.ProId != CallerId())
+            return Forbid();
 
         existingService.Name = service.Name;
         existingService.Description = service.Description;
@@ -196,6 +204,10 @@ public class ServicesController : ControllerBase
         {
             return NotFound();
         }
+
+        // A pro may only delete their own service.
+        if (service.ProId != CallerId())
+            return Forbid();
 
         _context.Services.Remove(service);
         await _context.SaveChangesAsync();

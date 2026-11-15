@@ -90,6 +90,12 @@ public class UsersController : ControllerBase
         if (id != request.Id)
             return BadRequest();
 
+        // A user may only edit their own account; admins may edit anyone.
+        var callerIdStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        int.TryParse(callerIdStr, out int callerId);
+        if (!User.IsInRole("Admin") && callerId != id)
+            return Forbid();
+
         var existingUser = await _context.Users.Include(u => u.Address).FirstOrDefaultAsync(u => u.Id == id);
         if (existingUser == null)
             return NotFound();
@@ -177,6 +183,12 @@ public class UsersController : ControllerBase
     [Authorize(Roles = "User,Admin")]
     public async Task<IActionResult> DeleteUser(int id)
     {
+        // A user may only delete their own account; admins may delete anyone.
+        var callerIdStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        int.TryParse(callerIdStr, out int callerId);
+        if (!User.IsInRole("Admin") && callerId != id)
+            return Forbid();
+
         var user = await _context.Users.Include(u => u.Address).FirstOrDefaultAsync(u => u.Id == id);
         if (user == null)
             return NotFound();
