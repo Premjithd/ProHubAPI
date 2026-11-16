@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using ServiceProviderAPI.Services;
 
 namespace ServiceProviderAPI.Controllers;
@@ -16,6 +17,7 @@ public class VerificationController : ControllerBase
     }
 
     [HttpPost("send-email-code")]
+    [EnableRateLimiting("verification-send")]
     public async Task<IActionResult> SendEmailVerificationCode([FromBody] SendVerificationCodeRequest request)
     {
         try
@@ -30,6 +32,7 @@ public class VerificationController : ControllerBase
     }
 
     [HttpPost("send-phone-code")]
+    [EnableRateLimiting("verification-send")]
     public async Task<IActionResult> SendPhoneVerificationCode([FromBody] SendVerificationCodeRequest request)
     {
         try
@@ -44,6 +47,7 @@ public class VerificationController : ControllerBase
     }
 
     [HttpPost("verify-email")]
+    [EnableRateLimiting("verification-verify")]
     public async Task<IActionResult> VerifyEmail([FromBody] VerifyCodeRequest request)
     {
         try
@@ -60,6 +64,7 @@ public class VerificationController : ControllerBase
     }
 
     [HttpPost("verify-phone")]
+    [EnableRateLimiting("verification-verify")]
     public async Task<IActionResult> VerifyPhone([FromBody] VerifyCodeRequest request)
     {
         try

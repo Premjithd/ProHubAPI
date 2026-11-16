@@ -1,4 +1,5 @@
 using System.Net.Mail;
+using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using ServiceProviderAPI.Data;
 using ServiceProviderAPI.Models;
@@ -17,13 +18,11 @@ public class VerificationService : IVerificationService
 {
     private readonly ApplicationDbContext _context;
     private readonly IConfiguration _configuration;
-    private readonly Random _random;
 
     public VerificationService(ApplicationDbContext context, IConfiguration configuration)
     {
         _context = context;
         _configuration = configuration;
-        _random = new Random();
     }
 
     public async Task<string> GenerateAndSendEmailVerificationCode(string email, string userType)
@@ -148,9 +147,10 @@ public class VerificationService : IVerificationService
         return true;
     }
 
-    private string GenerateRandomCode()
+    private static string GenerateRandomCode()
     {
-        return _random.Next(100000, 999999).ToString();
+        // Cryptographically secure 6-digit code (100000–999999); GetInt32's upper bound is exclusive.
+        return RandomNumberGenerator.GetInt32(100000, 1_000_000).ToString();
     }
 
     private async Task SendVerificationEmail(string email, string code)
