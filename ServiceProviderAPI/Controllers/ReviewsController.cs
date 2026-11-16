@@ -56,7 +56,15 @@ public class ReviewsController : ControllerBase
         };
 
         _context.Reviews.Add(review);
-        await _context.SaveChangesAsync();
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // Lost a race against the unique IX_Reviews_JobId index — a review already exists.
+            return Conflict(new { message = "A review has already been submitted for this job" });
+        }
 
         var reviewer = await _context.Users.FindAsync(callerId);
 
@@ -209,7 +217,15 @@ public class ReviewsController : ControllerBase
         };
 
         _context.UserReviews.Add(review);
-        await _context.SaveChangesAsync();
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // Lost a race against the unique IX_UserReviews_JobId index — a review already exists.
+            return Conflict(new { message = "A review has already been submitted for this job" });
+        }
 
         var reviewer = await _context.Pros.FindAsync(callerId);
 

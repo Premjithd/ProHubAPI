@@ -41,9 +41,13 @@ public class BusinessesController : ControllerBase
         // when the user goes back and forth during signup. Two ways we match:
         //   1. BusinessId round-tripped from the client (same session).
         //   2. Same name + phone — covers a page refresh that lost the id.
+        // This endpoint is anonymous, so the round-tripped BusinessId alone can't authorize an
+        // overwrite (ids are sequential/guessable). Require the phone to match too, so reusing a
+        // pending row needs knowledge of it — otherwise fall through and create a fresh one.
         var existing = req.BusinessId.HasValue
             ? await _context.Businesses.Include(b => b.Address)
-                .FirstOrDefaultAsync(b => b.Id == req.BusinessId.Value && b.Status == "Pending")
+                .FirstOrDefaultAsync(b => b.Id == req.BusinessId.Value && b.Status == "Pending"
+                    && b.Phone == req.Phone)
             : await _context.Businesses.Include(b => b.Address)
                 .FirstOrDefaultAsync(b => b.Status == "Pending"
                     && b.BusinessName == req.BusinessName

@@ -27,6 +27,9 @@ public class VerificationService : IVerificationService
 
     public async Task<string> GenerateAndSendEmailVerificationCode(string email, string userType)
     {
+        // Invalidate any still-valid codes for this email/type so only the newest code works.
+        await InvalidateOutstandingCodes(v => v.Email == email && v.Type == "Email" && v.UserType == userType);
+
         var code = GenerateRandomCode();
         var verificationCode = new VerificationCode
         {
@@ -47,6 +50,9 @@ public class VerificationService : IVerificationService
 
     public async Task<string> GenerateAndSendPhoneVerificationCode(string phoneNumber, string userType)
     {
+        // Invalidate any still-valid codes for this number/type so only the newest code works.
+        await InvalidateOutstandingCodes(v => v.PhoneNumber == phoneNumber && v.Type == "Phone" && v.UserType == userType);
+
         var code = GenerateRandomCode();
         var verificationCode = new VerificationCode
         {
@@ -145,6 +151,17 @@ public class VerificationService : IVerificationService
         }
 
         return true;
+    }
+
+    // Marks any matching unused, unexpired codes as used so a resend supersedes earlier codes.
+    private async Task InvalidateOutstandingCodes(System.Linq.Expressions.Expression<Func<VerificationCode, bool>> match)
+    {
+        var outstanding = await _context.VerificationCodes
+            .Where(match)
+            .Where(v => !v.IsUsed && v.ExpiresAt > DateTime.UtcNow)
+            .ToListAsync();
+        foreach (var vc in outstanding)
+            vc.IsUsed = true;
     }
 
     private static string GenerateRandomCode()
