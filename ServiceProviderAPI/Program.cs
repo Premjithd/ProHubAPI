@@ -272,6 +272,10 @@ try
                 }));
     });
 
+    // KYC upload/serving knobs (size, extensions, signed-URL TTL, storage folder, signing key).
+    builder.Services.Configure<ServiceProviderAPI.Configuration.KycOptions>(
+        builder.Configuration.GetSection(ServiceProviderAPI.Configuration.KycOptions.SectionName));
+
     Console.WriteLine("🌐 Adding CORS...");
     // Allowed origins come from configuration (Cors:AllowedOrigins). Falls back to the
     // local Angular dev server if none are configured.

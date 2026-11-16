@@ -4,6 +4,8 @@ using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using ServiceProviderAPI.Configuration;
 using ServiceProviderAPI.Data;
 
 namespace ServiceProviderAPI.Controllers;
@@ -17,18 +19,17 @@ public class KycController : ControllerBase
     private readonly IWebHostEnvironment _env;
     private readonly IConfiguration _configuration;
     private readonly ILogger<KycController> _logger;
+    private readonly KycOptions _options;
 
-    private static readonly string[] AllowedExtensions = [".pdf", ".jpg", ".jpeg", ".png"];
-    private const long MaxFileSizeBytes = 5 * 1024 * 1024; // 5 MB
-    // KYC docs are stored OUTSIDE wwwroot so they are never served as anonymous static files.
-    private const string PrivateRoot = "private-uploads";
-    private static readonly TimeSpan SignedUrlTtl = TimeSpan.FromHours(1);
+    // KYC docs are stored OUTSIDE wwwroot (see KycOptions.StorageFolder) so they are never
+    // served as anonymous static files — only via the signed /doc endpoint below.
 
-    public KycController(ApplicationDbContext context, IWebHostEnvironment env, IConfiguration configuration, ILogger<KycController> logger)
+    public KycController(ApplicationDbContext context, IWebHostEnvironment env, IConfiguration configuration, IOptions<KycOptions> options, ILogger<KycController> logger)
     {
         _context = context;
         _env = env;
         _configuration = configuration;
+        _options = options.Value;
         _logger = logger;
     }
 
@@ -144,14 +145,14 @@ public class KycController : ControllerBase
         if (file == null || file.Length == 0)
             return (null, "No file provided.");
 
-        if (file.Length > MaxFileSizeBytes)
-            return (null, "File size must not exceed 5 MB.");
+        if (file.Length > _options.MaxFileSizeBytes)
+            return (null, $"File size must not exceed {_options.MaxFileSizeBytes / (1024 * 1024)} MB.");
 
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
-        if (!AllowedExtensions.Contains(ext))
-            return (null, "Only PDF, JPG, JPEG, and PNG files are allowed.");
+        if (!_options.AllowedExtensions.Contains(ext, StringComparer.OrdinalIgnoreCase))
+            return (null, $"Only {string.Join(", ", _options.AllowedExtensions)} files are allowed.");
 
-        var folder = Path.Combine(_env.ContentRootPath, PrivateRoot, "kyc", proId.ToString());
+        var folder = Path.Combine(_env.ContentRootPath, _options.StorageFolder, "kyc", proId.ToString());
         Directory.CreateDirectory(folder);
 
         var fileName = $"{docType}_{Guid.NewGuid():N}{ext}";
@@ -161,7 +162,7 @@ public class KycController : ControllerBase
         await file.CopyToAsync(stream);
 
         // Stored relative to ContentRoot (forward slashes) — NOT a web-servable path.
-        var relativePath = $"{PrivateRoot}/kyc/{proId}/{fileName}";
+        var relativePath = $"{_options.StorageFolder}/kyc/{proId}/{fileName}";
         _logger.LogInformation("KYC document saved: {Path}", relativePath);
         return (relativePath, null);
     }
@@ -187,20 +188,22 @@ public class KycController : ControllerBase
             return null;
         var normalized = relativePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
         var fullPath = Path.GetFullPath(Path.Combine(_env.ContentRootPath, normalized));
-        var root = Path.GetFullPath(Path.Combine(_env.ContentRootPath, PrivateRoot));
+        var root = Path.GetFullPath(Path.Combine(_env.ContentRootPath, _options.StorageFolder));
         return fullPath.StartsWith(root, StringComparison.Ordinal) ? fullPath : null;
     }
 
     private string BuildSignedUrl(int proId, string docType)
     {
-        var exp = DateTimeOffset.UtcNow.Add(SignedUrlTtl).ToUnixTimeSeconds();
+        var exp = DateTimeOffset.UtcNow.AddMinutes(_options.SignedUrlTtlMinutes).ToUnixTimeSeconds();
         var sig = ComputeSignature(proId, docType, exp);
         return $"{Request.Scheme}://{Request.Host}/api/kyc/doc?pid={proId}&type={docType}&exp={exp}&sig={sig}";
     }
 
     private string ComputeSignature(int proId, string docType, long exp)
     {
-        var key = _configuration["Jwt:Key"] ?? "kyc-signing-fallback";
+        // Prefer a dedicated KYC signing key; fall back to the JWT key for backward compatibility.
+        var key = !string.IsNullOrEmpty(_options.SigningKey) ? _options.SigningKey
+                : _configuration["Jwt:Key"] ?? "kyc-signing-fallback";
         using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(key));
         var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes($"{proId}:{docType}:{exp}"));
         return Convert.ToBase64String(hash).Replace('+', '-').Replace('/', '_').TrimEnd('=');
