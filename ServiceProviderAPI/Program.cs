@@ -30,7 +30,11 @@ if (string.IsNullOrWhiteSpace(jwtKey) || jwtKey.StartsWith("REPLACE_ME"))
 try
 {
     // Configure at-rest field encryption (payout bank details) before the model is built.
-    ServiceProviderAPI.Data.FieldEncryption.Configure(builder.Configuration["Encryption:Key"]);
+    // Secret is sourced from the PROHUB_ENCRYPTION_KEY environment variable first (production /
+    // secrets manager), falling back to Encryption:Key in config for local development.
+    var encryptionKey = Environment.GetEnvironmentVariable("PROHUB_ENCRYPTION_KEY")
+        ?? builder.Configuration["Encryption:Key"];
+    ServiceProviderAPI.Data.FieldEncryption.Configure(encryptionKey);
 
     Console.WriteLine("📦 Adding DbContext...");
     // Add services to the container.
