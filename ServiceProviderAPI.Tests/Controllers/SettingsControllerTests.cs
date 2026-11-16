@@ -8,24 +8,51 @@ namespace ServiceProviderAPI.Tests.Controllers;
 public class SettingsControllerTests
 {
     [Fact]
-    public async Task GetSetting_Existing_ReturnsOk()
+    public async Task GetSetting_PublicKey_Anonymous_ReturnsOk()
     {
         var db = TestSupport.NewDb();
-        db.AppSettings.Add(new AppSetting { Key = "theme", Value = "dark" });
+        db.AppSettings.Add(new AppSetting { Key = "show_our_team", Value = "true" });
         await db.SaveChangesAsync();
-        var controller = new SettingsController(db);
+        var controller = new SettingsController(db).AsAnonymous();
 
-        var result = await controller.GetSetting("theme");
+        var result = await controller.GetSetting("show_our_team");
 
         Assert.IsType<OkObjectResult>(result.Result);
     }
 
     [Fact]
-    public async Task GetSetting_Missing_ReturnsNotFound()
+    public async Task GetSetting_NonPublicKey_Anonymous_ReturnsNotFound()
     {
-        var controller = new SettingsController(TestSupport.NewDb());
+        var db = TestSupport.NewDb();
+        db.AppSettings.Add(new AppSetting { Key = "commission.user_percent", Value = "10" });
+        await db.SaveChangesAsync();
+        var controller = new SettingsController(db).AsAnonymous();
 
-        var result = await controller.GetSetting("nope");
+        // A non-public key must not be readable (or even confirmable) by a non-admin.
+        var result = await controller.GetSetting("commission.user_percent");
+
+        Assert.IsType<NotFoundResult>(result.Result);
+    }
+
+    [Fact]
+    public async Task GetSetting_NonPublicKey_Admin_ReturnsOk()
+    {
+        var db = TestSupport.NewDb();
+        db.AppSettings.Add(new AppSetting { Key = "commission.user_percent", Value = "10" });
+        await db.SaveChangesAsync();
+        var controller = new SettingsController(db).AsUser(1, "Admin");
+
+        var result = await controller.GetSetting("commission.user_percent");
+
+        Assert.IsType<OkObjectResult>(result.Result);
+    }
+
+    [Fact]
+    public async Task GetSetting_Missing_PublicKey_ReturnsNotFound()
+    {
+        var controller = new SettingsController(TestSupport.NewDb()).AsAnonymous();
+
+        var result = await controller.GetSetting("show_our_team");
 
         Assert.IsType<NotFoundResult>(result.Result);
     }

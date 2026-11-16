@@ -257,6 +257,19 @@ try
                     QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                     QueueLimit = 0
                 }));
+
+        // Address proxy: 30 lookups per minute per IP. Stays anonymous (used pre-auth during
+        // registration autofill) but throttled so it can't be abused as an open Nominatim proxy.
+        options.AddPolicy("address-proxy", httpContext =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                factory: _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = isDevEnv ? 300 : 30,
+                    Window = TimeSpan.FromMinutes(1),
+                    QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                    QueueLimit = 0
+                }));
     });
 
     Console.WriteLine("🌐 Adding CORS...");

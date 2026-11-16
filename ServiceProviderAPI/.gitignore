@@ -100,3 +100,6 @@ package-lock.json
 
 # Per-user publish state (VS convention)
 *.pubxml.user
+
+# Private runtime uploads (KYC docs, etc.) — never committed, served only via signed URLs
+private-uploads/

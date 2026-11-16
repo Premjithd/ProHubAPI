@@ -1,8 +1,10 @@
+using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ServiceProviderAPI.Data;
-using System.Security.Claims;
 
 namespace ServiceProviderAPI.Controllers;
 
@@ -13,15 +15,20 @@ public class KycController : ControllerBase
 {
     private readonly ApplicationDbContext _context;
     private readonly IWebHostEnvironment _env;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<KycController> _logger;
 
     private static readonly string[] AllowedExtensions = [".pdf", ".jpg", ".jpeg", ".png"];
     private const long MaxFileSizeBytes = 5 * 1024 * 1024; // 5 MB
+    // KYC docs are stored OUTSIDE wwwroot so they are never served as anonymous static files.
+    private const string PrivateRoot = "private-uploads";
+    private static readonly TimeSpan SignedUrlTtl = TimeSpan.FromHours(1);
 
-    public KycController(ApplicationDbContext context, IWebHostEnvironment env, ILogger<KycController> logger)
+    public KycController(ApplicationDbContext context, IWebHostEnvironment env, IConfiguration configuration, ILogger<KycController> logger)
     {
         _context = context;
         _env = env;
+        _configuration = configuration;
         _logger = logger;
     }
 
@@ -38,8 +45,8 @@ public class KycController : ControllerBase
             kycSubmittedAt = pro.KycSubmittedAt,
             aadhaarUploaded = pro.AadhaarDocumentPath != null,
             panUploaded = pro.PanDocumentPath != null,
-            aadhaarUrl = pro.AadhaarDocumentPath != null ? $"{Request.Scheme}://{Request.Host}{pro.AadhaarDocumentPath}" : null,
-            panUrl = pro.PanDocumentPath != null ? $"{Request.Scheme}://{Request.Host}{pro.PanDocumentPath}" : null
+            aadhaarUrl = pro.AadhaarDocumentPath != null ? BuildSignedUrl(proId, "aadhaar") : null,
+            panUrl = pro.PanDocumentPath != null ? BuildSignedUrl(proId, "pan") : null
         });
     }
 
@@ -60,11 +67,7 @@ public class KycController : ControllerBase
         pro.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
-        return Ok(new
-        {
-            message = "Aadhaar document uploaded successfully.",
-            url = $"{Request.Scheme}://{Request.Host}{result.RelativePath}"
-        });
+        return Ok(new { message = "Aadhaar document uploaded successfully.", url = BuildSignedUrl(proId, "aadhaar") });
     }
 
     [HttpPost("upload/pan")]
@@ -84,11 +87,7 @@ public class KycController : ControllerBase
         pro.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
-        return Ok(new
-        {
-            message = "PAN document uploaded successfully.",
-            url = $"{Request.Scheme}://{Request.Host}{result.RelativePath}"
-        });
+        return Ok(new { message = "PAN document uploaded successfully.", url = BuildSignedUrl(proId, "pan") });
     }
 
     [HttpPost("submit")]
@@ -112,6 +111,34 @@ public class KycController : ControllerBase
         return Ok(new { message = "KYC submitted successfully. You will be notified once verified." });
     }
 
+    // GET /api/kyc/doc?pid=&type=&exp=&sig= — streams a KYC document.
+    // Anonymous (so <img>/<a> can load it without an auth header) but gated by a short-lived
+    // HMAC signature that is only ever minted for the owning pro (or an admin, future review flow).
+    [HttpGet("doc")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetDocument(
+        [FromQuery] int pid, [FromQuery] string type, [FromQuery] long exp, [FromQuery] string sig)
+    {
+        if (type != "aadhaar" && type != "pan")
+            return BadRequest();
+
+        if (DateTimeOffset.UtcNow.ToUnixTimeSeconds() > exp)
+            return StatusCode(StatusCodes.Status410Gone, new { message = "Link expired. Reload the page to get a fresh link." });
+
+        if (!FixedTimeEquals(sig, ComputeSignature(pid, type, exp)))
+            return Forbid();
+
+        var pro = await _context.Pros.FindAsync(pid);
+        var storedPath = type == "aadhaar" ? pro?.AadhaarDocumentPath : pro?.PanDocumentPath;
+        if (string.IsNullOrEmpty(storedPath)) return NotFound();
+
+        var fullPath = ResolveStoredPath(storedPath);
+        if (fullPath == null || !System.IO.File.Exists(fullPath)) return NotFound();
+
+        var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read);
+        return File(stream, GetContentType(fullPath));
+    }
+
     private async Task<(string? RelativePath, string? Error)> SaveDocument(IFormFile? file, int proId, string docType)
     {
         if (file == null || file.Length == 0)
@@ -124,7 +151,7 @@ public class KycController : ControllerBase
         if (!AllowedExtensions.Contains(ext))
             return (null, "Only PDF, JPG, JPEG, and PNG files are allowed.");
 
-        var folder = Path.Combine(_env.WebRootPath ?? "wwwroot", "uploads", "kyc", proId.ToString());
+        var folder = Path.Combine(_env.ContentRootPath, PrivateRoot, "kyc", proId.ToString());
         Directory.CreateDirectory(folder);
 
         var fileName = $"{docType}_{Guid.NewGuid():N}{ext}";
@@ -133,7 +160,8 @@ public class KycController : ControllerBase
         await using var stream = new FileStream(fullPath, FileMode.Create);
         await file.CopyToAsync(stream);
 
-        var relativePath = $"/uploads/kyc/{proId}/{fileName}";
+        // Stored relative to ContentRoot (forward slashes) — NOT a web-servable path.
+        var relativePath = $"{PrivateRoot}/kyc/{proId}/{fileName}";
         _logger.LogInformation("KYC document saved: {Path}", relativePath);
         return (relativePath, null);
     }
@@ -142,8 +170,8 @@ public class KycController : ControllerBase
     {
         try
         {
-            var fullPath = Path.Combine(_env.WebRootPath ?? "wwwroot", relativePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
-            if (System.IO.File.Exists(fullPath))
+            var fullPath = ResolveStoredPath(relativePath);
+            if (fullPath != null && System.IO.File.Exists(fullPath))
                 System.IO.File.Delete(fullPath);
         }
         catch (Exception ex)
@@ -151,4 +179,42 @@ public class KycController : ControllerBase
             _logger.LogWarning("Failed to delete old KYC file {Path}: {Error}", relativePath, ex.Message);
         }
     }
+
+    // Resolves a stored relative path under ContentRoot, rejecting anything that escapes the private root.
+    private string? ResolveStoredPath(string relativePath)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath) || relativePath.Contains(".."))
+            return null;
+        var normalized = relativePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
+        var fullPath = Path.GetFullPath(Path.Combine(_env.ContentRootPath, normalized));
+        var root = Path.GetFullPath(Path.Combine(_env.ContentRootPath, PrivateRoot));
+        return fullPath.StartsWith(root, StringComparison.Ordinal) ? fullPath : null;
+    }
+
+    private string BuildSignedUrl(int proId, string docType)
+    {
+        var exp = DateTimeOffset.UtcNow.Add(SignedUrlTtl).ToUnixTimeSeconds();
+        var sig = ComputeSignature(proId, docType, exp);
+        return $"{Request.Scheme}://{Request.Host}/api/kyc/doc?pid={proId}&type={docType}&exp={exp}&sig={sig}";
+    }
+
+    private string ComputeSignature(int proId, string docType, long exp)
+    {
+        var key = _configuration["Jwt:Key"] ?? "kyc-signing-fallback";
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(key));
+        var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes($"{proId}:{docType}:{exp}"));
+        return Convert.ToBase64String(hash).Replace('+', '-').Replace('/', '_').TrimEnd('=');
+    }
+
+    private static bool FixedTimeEquals(string a, string b) =>
+        CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(a ?? ""), Encoding.UTF8.GetBytes(b));
+
+    private static string GetContentType(string path) =>
+        Path.GetExtension(path).ToLowerInvariant() switch
+        {
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".png" => "image/png",
+            ".pdf" => "application/pdf",
+            _ => "application/octet-stream"
+        };
 }

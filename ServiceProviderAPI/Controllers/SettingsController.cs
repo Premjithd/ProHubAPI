@@ -14,10 +14,22 @@ public class SettingsController : ControllerBase
 
     public SettingsController(ApplicationDbContext context) => _context = context;
 
+    // Settings safe to expose to anyone (used by public pages). Any other key — e.g. the
+    // commission.* config — is readable only by admins, so the store can't be enumerated.
+    private static readonly HashSet<string> PublicKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "show_our_team",
+        "show_pro_count_on_categories",
+    };
+
     [HttpGet("{key}")]
     [AllowAnonymous]
     public async Task<ActionResult<object>> GetSetting(string key)
     {
+        // Non-public keys are admin-only; return NotFound for others so we don't even confirm existence.
+        if (!PublicKeys.Contains(key) && !User.IsInRole("Admin"))
+            return NotFound();
+
         var setting = await _context.AppSettings.FirstOrDefaultAsync(s => s.Key == key);
         if (setting == null) return NotFound();
         return Ok(new { key = setting.Key, value = setting.Value });

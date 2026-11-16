@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Caching.Memory;
 using ServiceProviderAPI.Services;
 
@@ -6,6 +7,7 @@ namespace ServiceProviderAPI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [EnableRateLimiting("address-proxy")]
     public class AddressController : ControllerBase
     {
         private readonly HttpClient _httpClient;
