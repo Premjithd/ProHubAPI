@@ -23,6 +23,21 @@ public class MessagesController : ControllerBase
         _logger = logger;
     }
 
+    // The app is strictly two-sided: a User only ever converses with a Pro. The caller's party
+    // type therefore follows from their role, and a partner's type is always the opposite. Matching
+    // on (id, type) — not the numeric id alone — stops a User and a Pro that share an id being conflated.
+    private (int Id, string Type) Caller()
+    {
+        var idStr = _httpContextAccessor.HttpContext?.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        int.TryParse(idStr, out int id);
+        bool isPro = _httpContextAccessor.HttpContext?.User.IsInRole("Pro") ?? false;
+        return (id, isPro ? "Pro" : "User");
+    }
+
+    private bool CallerIsAdmin() => _httpContextAccessor.HttpContext?.User.IsInRole("Admin") ?? false;
+
+    private static string Opposite(string type) => type == "Pro" ? "User" : "Pro";
+
     // GET: api/messages or api/messages?userId1=X&userType1=Type&userId2=Y&userType2=Type
     [HttpGet]
     public async Task<IActionResult> GetAllMessages(
@@ -37,10 +52,12 @@ public class MessagesController : ControllerBase
             if (userId1.HasValue && userId2.HasValue && !string.IsNullOrEmpty(userType1) && !string.IsNullOrEmpty(userType2))
             {
                 // Access control: only a participant in the conversation (or an admin) may read it.
-                var callerIdStr = _httpContextAccessor.HttpContext?.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-                int.TryParse(callerIdStr, out int callerId);
-                bool isAdmin = _httpContextAccessor.HttpContext?.User.IsInRole("Admin") ?? false;
-                if (!isAdmin && callerId != userId1.Value && callerId != userId2.Value)
+                // Compared on (id, type) so a User and a Pro sharing a numeric id aren't conflated.
+                var caller = Caller();
+                bool isParticipant =
+                    (caller.Id == userId1.Value && caller.Type == userType1) ||
+                    (caller.Id == userId2.Value && caller.Type == userType2);
+                if (!CallerIsAdmin() && !isParticipant)
                     return Forbid();
 
                 // Get the MessageIndex for this conversation pair
@@ -111,29 +128,29 @@ public class MessagesController : ControllerBase
         pageSize = Math.Clamp(pageSize, 1, 100);
         try
         {
-            // Resolve the caller from claims. A client-supplied userId is only honoured for the
-            // caller's own id or for admins — otherwise a user could read another's conversation list.
-            var userIdClaim = _httpContextAccessor.HttpContext?.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-            int.TryParse(userIdClaim, out int claimUserId);
-            bool callerIsAdmin = _httpContextAccessor.HttpContext?.User.IsInRole("Admin") ?? false;
-
-            int actualUserId;
-            if (userId.HasValue && userId.Value > 0)
-            {
-                if (!callerIsAdmin && userId.Value != claimUserId)
-                    return Forbid();
-                actualUserId = userId.Value;
-            }
-            else
-            {
-                if (claimUserId == 0)
-                    return Unauthorized(new { message = "Unable to determine user" });
-                actualUserId = claimUserId;
-            }
-
             // Validate userType parameter
             if (string.IsNullOrEmpty(userType) || (userType != "User" && userType != "Pro"))
                 return BadRequest(new { message = "UserType must be 'User' or 'Pro'" });
+
+            // A non-admin may only list their own conversations — force the (id, type) pair to the
+            // caller's and ignore any client-supplied identity. Admins may inspect anyone's list.
+            var caller = Caller();
+            bool callerIsAdmin = CallerIsAdmin();
+
+            int actualUserId;
+            if (callerIsAdmin)
+            {
+                actualUserId = userId.HasValue && userId.Value > 0 ? userId.Value : caller.Id;
+            }
+            else
+            {
+                if (caller.Id == 0)
+                    return Unauthorized(new { message = "Unable to determine user" });
+                if (userId.HasValue && userId.Value > 0 && userId.Value != caller.Id)
+                    return Forbid();
+                actualUserId = caller.Id;
+                userType = caller.Type; // query strictly as the caller's own party type
+            }
 
             // Get all MessageIndex entries where current user is involved
             var messageIndexes = await _context.MessageIndexes
@@ -313,16 +330,24 @@ public class MessagesController : ControllerBase
     {
         try
         {
-            var userIdClaim = _httpContextAccessor.HttpContext?.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-
-            if (!int.TryParse(userIdClaim, out int currentUserId))
+            var caller = Caller();
+            if (caller.Id == 0)
                 return Unauthorized(new { message = "Unable to determine user" });
 
-            // Get all messages between current user and specified user
+            // Resolve the conversation through the (type-aware) MessageIndex rather than matching raw
+            // numeric ids — the partner is the opposite party type, so a User/Pro id clash can't leak.
+            var partnerType = Opposite(caller.Type);
+            var messageIndex = await _context.MessageIndexes.FirstOrDefaultAsync(mi =>
+                (mi.UserId1 == caller.Id && mi.UserType1 == caller.Type && mi.UserId2 == userId && mi.UserType2 == partnerType) ||
+                (mi.UserId1 == userId && mi.UserType1 == partnerType && mi.UserId2 == caller.Id && mi.UserType2 == caller.Type));
+
+            if (messageIndex == null)
+                return Ok(new object[0]);
+
             var messages = await _context.Messages
-                .Where(m => (m.SenderId == currentUserId && m.RecipientId == userId) ||
-                           (m.SenderId == userId && m.RecipientId == currentUserId))
+                .Where(m => m.MessageIndexId == messageIndex.Id)
                 .OrderBy(m => m.SentAt)
+                .Select(m => new { m.Id, m.SenderId, m.RecipientId, m.SenderType, m.Content, m.SentAt, m.IsRead, m.ReadAt, m.MessageIndexId })
                 .ToListAsync();
 
             return Ok(messages);
@@ -343,11 +368,11 @@ public class MessagesController : ControllerBase
             if (message == null)
                 return NotFound(new { message = "Message not found" });
 
-            // Only the recipient (or an admin) may mark a message as read.
-            var callerIdStr = _httpContextAccessor.HttpContext?.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-            int.TryParse(callerIdStr, out int callerId);
-            bool isAdmin = _httpContextAccessor.HttpContext?.User.IsInRole("Admin") ?? false;
-            if (!isAdmin && message.RecipientId != callerId)
+            // Only the recipient (or an admin) may mark a message as read. The recipient's party type
+            // is the opposite of the sender's, so check (id, type) to avoid a User/Pro id clash.
+            var caller = Caller();
+            var recipientType = Opposite(message.SenderType ?? "User");
+            if (!CallerIsAdmin() && (message.RecipientId != caller.Id || caller.Type != recipientType))
                 return Forbid();
 
             message.IsRead = true;
@@ -383,15 +408,12 @@ public class MessagesController : ControllerBase
             if (job == null)
                 return NotFound(new { message = "Job not found" });
 
-            // Get current user ID from claims
-            var userIdClaim = _httpContextAccessor.HttpContext?.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-
-            if (!int.TryParse(userIdClaim, out int senderId))
-                return Unauthorized(new { message = "Unable to determine sender" });
-
-            // Verify that the sender is the job owner
-            if (job.UserId != senderId)
+            // The sender must be the job-owning consumer (a User) — checked on (id, type).
+            var caller = Caller();
+            if (job.UserId != caller.Id || caller.Type != "User")
                 return StatusCode(403, new { message = "You are not authorized to send messages for this job" });
+
+            int senderId = caller.Id;
 
             // Get or create MessageIndex entry
             var messageIndex = await GetOrCreateMessageIndex(senderId, "User", bid.ProId, "Pro");
@@ -433,17 +455,17 @@ public class MessagesController : ControllerBase
     {
         try
         {
-            var callerIdStr = _httpContextAccessor.HttpContext?.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-            if (!int.TryParse(callerIdStr, out int callerId))
+            var caller = Caller();
+            if (caller.Id == 0)
                 return Unauthorized(new { message = "Unable to determine caller" });
 
             var job = await _context.Jobs.FindAsync(jobId);
             if (job == null)
                 return NotFound(new { message = "Job not found" });
 
-            // Determine the two parties and verify the caller is one of them
-            bool callerIsUser = job.UserId == callerId;
-            bool callerIsPro  = job.AssignedProId.HasValue && job.AssignedProId == callerId;
+            // Determine the two parties and verify the caller is one of them (matched on id + type).
+            bool callerIsUser = job.UserId == caller.Id && caller.Type == "User";
+            bool callerIsPro  = job.AssignedProId.HasValue && job.AssignedProId == caller.Id && caller.Type == "Pro";
 
             if (!callerIsUser && !callerIsPro)
                 return Forbid();
@@ -487,20 +509,21 @@ public class MessagesController : ControllerBase
             if (string.IsNullOrWhiteSpace(request?.Content))
                 return BadRequest(new { message = "Message content is required" });
 
-            var callerIdStr = _httpContextAccessor.HttpContext?.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-            if (!int.TryParse(callerIdStr, out int callerId))
+            var caller = Caller();
+            if (caller.Id == 0)
                 return Unauthorized(new { message = "Unable to determine caller" });
 
             var job = await _context.Jobs.FindAsync(jobId);
             if (job == null)
                 return NotFound(new { message = "Job not found" });
 
-            // Determine caller role and the recipient
+            // Determine caller role and the recipient (parties matched on id + type)
             int recipientId;
             string senderType;
             string recipientType;
+            var callerId = caller.Id;
 
-            if (job.UserId == callerId)
+            if (job.UserId == caller.Id && caller.Type == "User")
             {
                 // Consumer sending to the assigned pro (or a specific bid pro via recipientId)
                 senderType = "User";
@@ -512,7 +535,7 @@ public class MessagesController : ControllerBase
                 if (recipientId == 0)
                     return BadRequest(new { message = "No assigned professional found. Provide recipientId." });
             }
-            else if (job.AssignedProId.HasValue && job.AssignedProId == callerId)
+            else if (job.AssignedProId.HasValue && job.AssignedProId == caller.Id && caller.Type == "Pro")
             {
                 // Assigned pro sending to the consumer
                 senderType = "Pro";
