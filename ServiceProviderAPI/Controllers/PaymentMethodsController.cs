@@ -91,19 +91,14 @@ public class PaymentMethodsController : ControllerBase
         var (ownerId, ownerType, error) = await ResolveOwner(req.BusinessId);
         if (error != null) return error;
 
-        if (req.Type != "UPI" && req.Type != "Bank")
-            return BadRequest(new { message = "Type must be 'UPI' or 'Bank'" });
-
-        if (req.Type == "UPI" && string.IsNullOrWhiteSpace(req.UpiVpa))
-            return BadRequest(new { message = "UpiVpa is required for UPI type" });
-
-        if (req.Type == "Bank" && (string.IsNullOrWhiteSpace(req.BankAccountNumber) || string.IsNullOrWhiteSpace(req.BankIfsc)))
-            return BadRequest(new { message = "BankAccountNumber and BankIfsc are required for Bank type" });
+        if (ValidateTypeForOwner(req, ownerType) is { } typeError)
+            return typeError;
 
         // If this is marked as default, clear other defaults for same owner
         if (req.IsDefault ?? false)
             await ClearDefaults(ownerId, ownerType);
 
+        var isUpi = req.Type == "UPI";
         var pm = new PaymentMethod
         {
             UserId = ownerType == "User" ? ownerId : null,
@@ -112,10 +107,11 @@ public class PaymentMethodsController : ControllerBase
             Type = req.Type,
             Label = req.Label?.Trim(),
             IsDefault = req.IsDefault ?? false,
-            UpiVpa = req.UpiVpa?.Trim(),
-            BankAccountHolderName = req.BankAccountHolderName?.Trim(),
-            BankAccountNumber = req.BankAccountNumber?.Trim(),
-            BankIfsc = req.BankIfsc?.Trim().ToUpperInvariant(),
+            // Store only the fields relevant to the chosen type — a UPI method never retains bank details.
+            UpiVpa = isUpi ? req.UpiVpa?.Trim() : null,
+            BankAccountHolderName = isUpi ? null : req.BankAccountHolderName?.Trim(),
+            BankAccountNumber = isUpi ? null : req.BankAccountNumber?.Trim(),
+            BankIfsc = isUpi ? null : req.BankIfsc?.Trim().ToUpperInvariant(),
             CreatedAt = DateTime.UtcNow
         };
 
@@ -134,26 +130,23 @@ public class PaymentMethodsController : ControllerBase
         if (pm == null) return NotFound();
         if (!OwnsMethod(pm)) return Forbid();
 
-        if (req.Type != "UPI" && req.Type != "Bank")
-            return BadRequest(new { message = "Type must be 'UPI' or 'Bank'" });
+        // A method owned by a consumer stays UPI-only, matching the create-time rule.
+        var ownerType = pm.UserId.HasValue ? "User" : pm.ProId.HasValue ? "Pro" : "Business";
+        if (ValidateTypeForOwner(req, ownerType) is { } typeError)
+            return typeError;
 
-        if (req.Type == "UPI" && string.IsNullOrWhiteSpace(req.UpiVpa))
-            return BadRequest(new { message = "UpiVpa is required for UPI type" });
-
-        if (req.Type == "Bank" && (string.IsNullOrWhiteSpace(req.BankAccountNumber) || string.IsNullOrWhiteSpace(req.BankIfsc)))
-            return BadRequest(new { message = "BankAccountNumber and BankIfsc are required for Bank type" });
-
+        var isUpi = req.Type == "UPI";
         bool detailsChanged = pm.Type != req.Type
-            || pm.UpiVpa != req.UpiVpa?.Trim()
-            || pm.BankAccountNumber != req.BankAccountNumber?.Trim()
-            || pm.BankIfsc != req.BankIfsc?.Trim().ToUpperInvariant();
+            || pm.UpiVpa != (isUpi ? req.UpiVpa?.Trim() : null)
+            || pm.BankAccountNumber != (isUpi ? null : req.BankAccountNumber?.Trim())
+            || pm.BankIfsc != (isUpi ? null : req.BankIfsc?.Trim().ToUpperInvariant());
 
         pm.Type = req.Type;
         pm.Label = req.Label?.Trim();
-        pm.UpiVpa = req.UpiVpa?.Trim();
-        pm.BankAccountHolderName = req.BankAccountHolderName?.Trim();
-        pm.BankAccountNumber = req.BankAccountNumber?.Trim();
-        pm.BankIfsc = req.BankIfsc?.Trim().ToUpperInvariant();
+        pm.UpiVpa = isUpi ? req.UpiVpa?.Trim() : null;
+        pm.BankAccountHolderName = isUpi ? null : req.BankAccountHolderName?.Trim();
+        pm.BankAccountNumber = isUpi ? null : req.BankAccountNumber?.Trim();
+        pm.BankIfsc = isUpi ? null : req.BankIfsc?.Trim().ToUpperInvariant();
 
         // Reset Razorpay infra if payout details changed
         if (detailsChanged) pm.RazorpayFundAccountId = null;
@@ -194,6 +187,25 @@ public class PaymentMethodsController : ControllerBase
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
+
+    // Validates the method type and enforces the consumer/payout split:
+    // consumers may save only a UPI handle; Bank details exist solely for Pro/Business payouts.
+    private BadRequestObjectResult? ValidateTypeForOwner(PaymentMethodRequest req, string ownerType)
+    {
+        if (req.Type != "UPI" && req.Type != "Bank")
+            return BadRequest(new { message = "Type must be 'UPI' or 'Bank'" });
+
+        if (ownerType == "User" && req.Type != "UPI")
+            return BadRequest(new { message = "Only UPI methods can be saved on a customer account." });
+
+        if (req.Type == "UPI" && string.IsNullOrWhiteSpace(req.UpiVpa))
+            return BadRequest(new { message = "UpiVpa is required for UPI type" });
+
+        if (req.Type == "Bank" && (string.IsNullOrWhiteSpace(req.BankAccountNumber) || string.IsNullOrWhiteSpace(req.BankIfsc)))
+            return BadRequest(new { message = "BankAccountNumber and BankIfsc are required for Bank type" });
+
+        return null;
+    }
 
     private bool OwnsMethod(PaymentMethod pm)
     {
