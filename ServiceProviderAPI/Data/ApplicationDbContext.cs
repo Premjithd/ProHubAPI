@@ -343,5 +343,15 @@ public class ApplicationDbContext : DbContext
             .HasForeignKey(pm => pm.BusinessId)
             .IsRequired(false)
             .OnDelete(DeleteBehavior.Cascade);
+
+        // Encrypt the financial-identifier columns at rest (AES-256-GCM). Columns are widened to
+        // 256 chars to hold the base64 ciphertext; encryption is a no-op until a key is configured.
+        modelBuilder.Entity<PaymentMethod>(e =>
+        {
+            e.Property(pm => pm.BankAccountNumber).HasConversion(FieldEncryption.Converter).HasMaxLength(256);
+            e.Property(pm => pm.BankIfsc).HasConversion(FieldEncryption.Converter).HasMaxLength(256);
+            e.Property(pm => pm.BankAccountHolderName).HasConversion(FieldEncryption.Converter).HasMaxLength(256);
+            e.Property(pm => pm.UpiVpa).HasConversion(FieldEncryption.Converter).HasMaxLength(256);
+        });
     }
 }

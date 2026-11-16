@@ -29,6 +29,9 @@ if (string.IsNullOrWhiteSpace(jwtKey) || jwtKey.StartsWith("REPLACE_ME"))
 
 try
 {
+    // Configure at-rest field encryption (payout bank details) before the model is built.
+    ServiceProviderAPI.Data.FieldEncryption.Configure(builder.Configuration["Encryption:Key"]);
+
     Console.WriteLine("📦 Adding DbContext...");
     // Add services to the container.
     builder.Services.AddDbContext<ApplicationDbContext>(options =>
