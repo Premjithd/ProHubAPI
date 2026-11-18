@@ -20,7 +20,7 @@ public class ServicesController : ControllerBase
 
     private int CallerId() => int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "0");
 
-    // GET: api/services?page=1&pageSize=100&categoryId=&search=&city=&pin=&sortBy=name
+    // GET: api/services?page=1&pageSize=100&categoryId=&search=&city=&pin=&lat=&lng=&radiusKm=&sortBy=name
     [HttpGet]
     public async Task<ActionResult<PagedResult<ServiceBrowseDto>>> GetServices(
         [FromQuery] int page = 1,
@@ -29,10 +29,17 @@ public class ServicesController : ControllerBase
         [FromQuery] string? search = null,
         [FromQuery] string? city = null,
         [FromQuery] string? pin = null,
+        [FromQuery] double? lat = null,
+        [FromQuery] double? lng = null,
+        [FromQuery] double? radiusKm = null,
         [FromQuery] string? sortBy = "name")
     {
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 200);
+
+        // Proximity mode: when the searcher's coordinates are supplied, rank by distance
+        // to the pro rather than restricting to an exact PIN.
+        bool proximity = lat.HasValue && lng.HasValue;
 
         var query = _context.Services
             .Include(s => s.Pro).ThenInclude(p => p!.Address)
@@ -60,10 +67,61 @@ public class ServicesController : ControllerBase
             query = query.Where(s => s.Pro != null && s.Pro.Address != null &&
                 s.Pro.Address.City != null && s.Pro.Address.City.Contains(city));
 
-        // Area filter: restrict to pros located in the given PIN / postal code.
-        if (!string.IsNullOrEmpty(pin))
+        // Area filter: restrict to pros located in the given PIN / postal code. Skipped in
+        // proximity mode — the client geocodes the PIN into lat/lng so we rank by distance
+        // instead (pros in adjacent PINs should still surface).
+        if (!proximity && !string.IsNullOrEmpty(pin))
             query = query.Where(s => s.Pro != null && s.Pro.Address != null &&
                 s.Pro.Address.ZipPostalCode == pin);
+
+        if (proximity)
+        {
+            // Pull the filtered set (no Skip/Take) so Haversine can run in memory, then
+            // rank nearest-first and paginate.
+            var rows = await query
+                .Select(s => new
+                {
+                    Dto = new ServiceBrowseDto
+                    {
+                        Id                = s.Id,
+                        Name              = s.Name,
+                        Description       = s.Description,
+                        Price             = s.Price,
+                        ImageUrl          = s.ImageUrl,
+                        ProId             = s.ProId,
+                        ProName           = s.Pro != null ? s.Pro.ProName : null,
+                        BusinessName      = s.Pro != null ? s.Pro.BusinessName : null,
+                        City              = s.Pro != null && s.Pro.Address != null ? s.Pro.Address.City : null,
+                        State             = s.Pro != null && s.Pro.Address != null ? s.Pro.Address.State : null,
+                        ServiceCategoryId = s.ServiceCategoryId,
+                        CategoryName      = s.ServiceCategory != null ? s.ServiceCategory.Name : null,
+                        CategoryIcon      = s.ServiceCategory != null ? s.ServiceCategory.Icon : null,
+                    },
+                    Lat = s.Pro != null && s.Pro.Address != null ? s.Pro.Address.Latitude : (double?)null,
+                    Lng = s.Pro != null && s.Pro.Address != null ? s.Pro.Address.Longitude : (double?)null,
+                })
+                .ToListAsync();
+
+            var withDistance = rows.Select(r =>
+            {
+                if (r.Lat.HasValue && r.Lng.HasValue)
+                    r.Dto.DistanceKm = Math.Round(HaversineKm(lat!.Value, lng!.Value, r.Lat.Value, r.Lng.Value), 1);
+                return r.Dto;
+            });
+
+            // Optional hard radius filter: keep services within radius OR those whose pro has
+            // no coordinates (can't position them, so don't silently drop them).
+            if (radiusKm.HasValue)
+                withDistance = withDistance.Where(d => d.DistanceKm == null || d.DistanceKm <= radiusKm.Value);
+
+            var ordered = withDistance
+                .OrderBy(d => d.DistanceKm ?? double.MaxValue)
+                .ThenBy(d => d.Name)
+                .ToList();
+
+            var itemsP = ordered.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+            return Ok(new PagedResult<ServiceBrowseDto> { Items = itemsP, Total = ordered.Count, Page = page, PageSize = pageSize });
+        }
 
         query = sortBy switch
         {
@@ -95,6 +153,18 @@ public class ServicesController : ControllerBase
             .ToListAsync();
 
         return Ok(new PagedResult<ServiceBrowseDto> { Items = items, Total = total, Page = page, PageSize = pageSize });
+    }
+
+    // Haversine formula — returns distance in kilometres between two lat/lng points.
+    private static double HaversineKm(double lat1, double lon1, double lat2, double lon2)
+    {
+        const double R = 6371.0;
+        var dLat = (lat2 - lat1) * Math.PI / 180.0;
+        var dLon = (lon2 - lon1) * Math.PI / 180.0;
+        var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2)
+              + Math.Cos(lat1 * Math.PI / 180.0) * Math.Cos(lat2 * Math.PI / 180.0)
+              * Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+        return R * 2.0 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1.0 - a));
     }
 
     [HttpGet("{id}")]

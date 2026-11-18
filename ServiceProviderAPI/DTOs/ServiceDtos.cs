@@ -15,4 +15,6 @@ public class ServiceBrowseDto
     public int? ServiceCategoryId { get; set; }
     public string? CategoryName { get; set; }
     public string? CategoryIcon { get; set; }
+    /// <summary>Distance (km) from the searcher's location to the pro, when a proximity search is performed; null otherwise.</summary>
+    public double? DistanceKm { get; set; }
 }
