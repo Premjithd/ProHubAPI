@@ -101,6 +101,7 @@ public class ServiceCategoriesController : ControllerBase
         existingCategory.Name = category.Name;
         existingCategory.Description = category.Description;
         existingCategory.Icon = category.Icon;
+        existingCategory.DefaultPhasesJson = category.DefaultPhasesJson;
         existingCategory.ServiceCount = category.ServiceCount;
         existingCategory.IsActive = category.IsActive;
         existingCategory.UpdatedAt = DateTime.UtcNow;

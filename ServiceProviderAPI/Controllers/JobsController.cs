@@ -414,6 +414,16 @@ public class JobsController : ControllerBase
             if (job == null)
                 return NotFound("Job not found");
 
+            // Lazily seed phases from the category template and auto-tick the phases implied
+            // by the current status (payment / in-progress). This is the single convergence
+            // point covering every status-transition path, so no transition site has to know
+            // about phases. Only persists when something actually changed.
+            if (JobPhaseTemplate.ApplyTemplateAndAutoTicks(job, job.Category))
+            {
+                job.UpdatedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+            }
+
             return Ok(SafeJob(job));
         }
         catch (Exception ex)
@@ -877,6 +887,14 @@ public class JobsController : ControllerBase
             job.AssignedProId = bid.ProId;
             job.Status = "Bid Accepted";
             job.UpdatedAt = DateTime.UtcNow;
+
+            // Seed the project phases from the category template now that a pro is assigned,
+            // so progress shows up immediately (the pro can still override them later).
+            var category = job.CategoryId.HasValue
+                ? await _context.ServiceCategories.FindAsync(job.CategoryId.Value)
+                : null;
+            JobPhaseTemplate.ApplyTemplateAndAutoTicks(job, category);
+
             _context.Jobs.Update(job);
 
             // Reject all other bids for this job
@@ -1115,10 +1133,49 @@ public class JobsController : ControllerBase
                 return Forbid();
             }
 
-            // Update the job phases as JSON
+            // Update the job phases as JSON. A pro may add phases but may not drop (or
+            // un-flag) the template-seeded defaults — re-merge any that are missing so the
+            // locked phases always survive a save regardless of what the client sent.
             if (request.JobPhases != null)
             {
-                job.JobPhases = System.Text.Json.JsonSerializer.Serialize(request.JobPhases);
+                var incoming = request.JobPhases;
+                if (!string.IsNullOrWhiteSpace(job.JobPhases))
+                {
+                    List<JobPhaseDto>? existing = null;
+                    try
+                    {
+                        existing = System.Text.Json.JsonSerializer.Deserialize<List<JobPhaseDto>>(
+                            job.JobPhases, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    }
+                    catch { /* malformed stored JSON — nothing to preserve */ }
+
+                    if (existing != null)
+                    {
+                        var incomingById = incoming
+                            .Where(p => p.Id != null)
+                            .ToDictionary(p => p.Id!, p => p);
+
+                        for (int i = 0; i < existing.Count; i++)
+                        {
+                            var def = existing[i];
+                            if (!def.IsDefault || def.Id == null) continue;
+
+                            if (incomingById.TryGetValue(def.Id, out var inc))
+                            {
+                                inc.IsDefault = true; // preserve the locked flag
+                            }
+                            else
+                            {
+                                // Re-insert the dropped default near its original position,
+                                // keeping its stored completion state.
+                                incoming.Insert(Math.Min(i, incoming.Count), def);
+                                incomingById[def.Id] = def;
+                            }
+                        }
+                    }
+                }
+
+                job.JobPhases = System.Text.Json.JsonSerializer.Serialize(incoming);
             }
 
             job.UpdatedAt = DateTime.UtcNow;
@@ -1217,6 +1274,8 @@ public class JobPhaseDto
     public string? Description { get; set; }
     public bool IsCompleted { get; set; }
     public string? CompletedAt { get; set; }
+    // True for template-seeded phases the pro may not remove (they can still add more).
+    public bool IsDefault { get; set; }
 }
 
 public class CreateJobRequest

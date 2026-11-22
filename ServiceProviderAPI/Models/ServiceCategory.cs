@@ -15,7 +15,13 @@ public class ServiceCategory
     
     [StringLength(50)]
     public string? Icon { get; set; }
-    
+
+    // JSON array of default project phases seeded into a job's JobPhases when a bid is
+    // accepted (and the job has no phases yet). Admin-editable; empty/null falls back to
+    // JobPhaseTemplate.GenericDefaultJson. See Services/JobPhaseTemplate.cs.
+    [StringLength(4000)]
+    public string? DefaultPhasesJson { get; set; }
+
     public int ServiceCount { get; set; } = 0;
     
     public bool IsActive { get; set; } = true;
